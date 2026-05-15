@@ -489,6 +489,12 @@ body::before{
     <i class="fas fa-comments"></i> telcek
   </a>
 
+  <div class="nav-section">Export</div>
+  <a class="nav-item" onclick="show('report')" href="#" id="nav-report">
+    <i class="fas fa-file-alt"></i> report generator
+    <span class="badge" id="report-badge" style="display:none;">0</span>
+  </a>
+
   <div style="margin-top:auto;padding:12px 16px;border-top:1px solid var(--border);">
     <a class="nav-item" onclick="show('status')" href="#" style="padding:6px 0;">
       <i class="fas fa-heartbeat"></i> Tool Status
@@ -765,6 +771,25 @@ body::before{
         </button>
       </div>
 
+      <!-- report generator -->
+      <div class="panel" id="panel-report">
+        <div class="tool-header">
+          <div class="tool-name"><i class="fas fa-file-alt"></i> REPORT GENERATOR</div>
+          <div class="tool-desc">Kumpulkan semua hasil OSINT sesi ini dan export ke file HTML yang dapat diprint sebagai PDF.</div>
+        </div>
+        <div id="report-panel-summary" style="margin-bottom:16px;">
+          <div style="font-size:11px;color:var(--text-dim);padding:12px;border:1px solid var(--border);border-radius:var(--radius);">
+            Belum ada data. Jalankan tools OSINT terlebih dahulu.
+          </div>
+        </div>
+        <button class="btn" onclick="generateReport()" id="btn-report">
+          <i class="fas fa-download"></i> GENERATE & DOWNLOAD REPORT
+        </button>
+        <button onclick="clearSession()" style="width:100%;margin-top:8px;padding:8px;background:transparent;border:1px solid rgba(226,75,74,0.3);color:var(--red);font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;cursor:pointer;border-radius:var(--radius);">
+          <i class="fas fa-trash"></i> CLEAR SESSION DATA
+        </button>
+      </div>
+
       <!-- status -->
       <div class="panel" id="panel-status">
         <div class="tool-header">
@@ -816,6 +841,7 @@ const TITLES = {
   'hibp-password':      'SECURITY — HIBP Password',
   'messenger-telcek':   'MESSENGER — telcek',
   'status':             'TOOL STATUS',
+  'report':             'EXPORT — Report Generator',
 };
 
 function show(id) {
@@ -906,6 +932,7 @@ async function runMaigret() {
       </div>`).join('') + `</div>`;
   }
 
+  _saveFinding('maigret', 'Username Hunt', username, data);
   setResult(html);
 }
 
@@ -973,6 +1000,7 @@ async function runIpLookup() {
       <div class="tag-list" style="margin-top:8px;">${flags.join('')}</div>
     </div>
   </div>`;
+  _saveFinding('ip-lookup', 'IP Geolocation', ip, data);
   setResult(html);
 }
 
@@ -1064,6 +1092,7 @@ async function runGithub() {
       </div>
     </div>`;
   }
+  _saveFinding('github', 'GitHub OSINT', username, data);
   setResult(html);
 }
 
@@ -1129,6 +1158,7 @@ async function runMulticheck() {
       </div>
     </div>`;
   }
+  _saveFinding('multicheck', 'Platform Multicheck', username, data);
   setResult(html);
 }
 
@@ -1168,6 +1198,7 @@ async function runHolehe() {
       </div>`;
     });
   }
+  _saveFinding('holehe', 'Email — Holehe', email, data);
   setResult(html);
 }
 
@@ -1243,6 +1274,7 @@ async function runGhunt() {
     </div>
   </div>`;
 
+  _saveFinding('ghunt', 'Email — GHunt', email, data);
   setResult(html);
 }
 
@@ -1302,6 +1334,7 @@ async function runPhone() {
       </div>
     </div>`;
   }
+  _saveFinding('phone', 'Phone Lookup', number, data);
   setResult(html);
 }
 
@@ -1368,6 +1401,7 @@ async function runWhois() {
       </div>
     </div>`;
   }
+  _saveFinding('whois', 'Domain WHOIS', domain, data);
   setResult(html);
 }
 
@@ -1467,6 +1501,7 @@ async function runIgInfo() {
     </div>
   </div>`;
 
+  _saveFinding('iginfo', 'Instagram Info', username, data);
   setResult(html);
 }
 
@@ -1622,6 +1657,7 @@ async function runToutatis() {
     </div>
   </div>`;
 
+  _saveFinding('toutatis', 'Instagram Deep Scan', username, data);
   setResult(html);
 }
 
@@ -1668,6 +1704,7 @@ async function runHibpEmail() {
       </div>
     </div>`;
   }
+  _saveFinding('hibp-email', 'HIBP Email Breach', email, data);
   setResult(html);
 }
 
@@ -1694,6 +1731,7 @@ async function runHibpPassword() {
     <div class="details">${data.message}</div>
     ${data.pwned ? `<div style="margin-top:16px;padding:10px;background:rgba(226,75,74,.07);border:1px solid rgba(226,75,74,.25);border-radius:4px;font-size:10px;color:var(--text-dim);">This password has appeared in ${(data.count||0).toLocaleString()} data breaches. Change it immediately on all sites where you use it.</div>` : ''}
   </div>`;
+  _saveFinding('hibp-password', 'Password Breach Check', '(password)', {pwned: data.pwned, severity: data.severity, count: data.count, message: data.message});
   setResult(html);
 }
 
@@ -1749,6 +1787,7 @@ async function runTelcek() {
   });
 
   html += `</div></div>`;
+  _saveFinding('telcek', 'Messenger Check', number, data);
   setResult(html);
 }
 
@@ -1859,6 +1898,7 @@ async function runEmailHeader() {
       ${kv('Score', data.spam.score)}
     </div>` : ''}
   </div>`;
+  _saveFinding('email-header', 'Email Header Analysis', data.from || '(header)', data);
   setResult(html);
 }
 
@@ -1924,6 +1964,7 @@ async function runDns() {
       ${dkimSelectors.length ? `<div class="kv"><span class="kv-key">DKIM</span><span class="kv-val green">Found: ${dkimSelectors.map(d=>d.selector).join(', ')}</span></div>` : `<div class="kv"><span class="kv-key">DKIM</span><span class="kv-val pink">No common selectors found</span></div>`}
     </div>
   </div>`;
+  _saveFinding('dns', 'DNS Deep Lookup', domain, data);
   setResult(html);
 }
 
@@ -2002,7 +2043,207 @@ async function runLeakSearch() {
       ${(data.missing_keys||[]).map(k=>`<div style="font-size:13px;color:var(--orange);padding:3px 0;"><i class="fas fa-plus-circle"></i> ${k}</div>`).join('')}
     </div>` : ''}
   </div>`;
+  _saveFinding('leak-search', 'Leak / Paste Search', query, data);
   setResult(html);
+}
+
+// ─── SESSION TRACKER ───
+window._osintSession = {};
+
+function _saveFinding(id, toolName, target, data) {
+  window._osintSession[id] = {
+    id, tool: toolName, target,
+    ts: new Date().toISOString(),
+    data: JSON.parse(JSON.stringify(data))
+  };
+  _updateReportBadge();
+  _updateReportSummary();
+}
+
+function _updateReportBadge() {
+  const n = Object.keys(window._osintSession).length;
+  const badge = document.getElementById('report-badge');
+  if (!badge) return;
+  if (n > 0) { badge.style.display = ''; badge.textContent = n; }
+  else badge.style.display = 'none';
+}
+
+function _updateReportSummary() {
+  const el = document.getElementById('report-panel-summary');
+  if (!el) return;
+  const findings = Object.values(window._osintSession);
+  if (!findings.length) {
+    el.innerHTML = `<div style="font-size:11px;color:var(--text-dim);padding:12px;border:1px solid var(--border);border-radius:var(--radius);">Belum ada data. Jalankan tools OSINT terlebih dahulu.</div>`;
+    return;
+  }
+  const rows = findings.map(f => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:10px;">
+      <span style="color:var(--amber);font-weight:600;">${f.tool}</span>
+      <span style="color:var(--text);">${f.target}</span>
+      <span style="color:var(--text-dim);">${f.ts.slice(11,19)} UTC</span>
+    </div>`).join('');
+  el.innerHTML = `
+    <div style="font-size:9px;color:var(--text-dim);letter-spacing:1px;margin-bottom:8px;">${findings.length} FINDING${findings.length>1?'S':''} COLLECTED</div>
+    <div style="border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;">${rows}</div>`;
+}
+
+function clearSession() {
+  if (!Object.keys(window._osintSession).length) return;
+  if (!confirm('Hapus semua data sesi OSINT?')) return;
+  window._osintSession = {};
+  _updateReportBadge();
+  _updateReportSummary();
+}
+
+// ─── REPORT HTML BUILDER ───
+function _flatten(obj, prefix) {
+  const out = [];
+  if (!obj || typeof obj !== 'object') return out;
+  for (const [k, v] of Object.entries(obj)) {
+    if (k.startsWith('_') || v === null || v === undefined || v === '') continue;
+    const label = (prefix ? prefix + ' › ' : '') + k.replace(/_/g,' ');
+    if (Array.isArray(v)) {
+      if (!v.length) continue;
+      if (typeof v[0] === 'object') {
+        v.forEach((item, i) => {
+          out.push(..._flatten(item, `${label} [${i+1}]`));
+        });
+      } else {
+        out.push({ k: label, v: v.join(' · ') });
+      }
+    } else if (typeof v === 'object') {
+      out.push(..._flatten(v, label));
+    } else {
+      out.push({ k: label, v: String(v) });
+    }
+  }
+  return out;
+}
+
+function buildReportHtml(findings) {
+  const ts = new Date().toUTCString();
+  const css = `
+    *{margin:0;padding:0;box-sizing:border-box;}
+    body{background:#0a0c10;color:#d4cfc4;font-family:'Courier New',Courier,monospace;font-size:13px;line-height:1.6;padding:0;}
+    @media print{body{background:#fff;color:#111;}
+      .finding{page-break-inside:avoid;break-inside:avoid;}
+      .no-print{display:none;}
+      .report-cover{page-break-after:always;break-after:always;}
+      a{color:#000;text-decoration:underline;}
+      th{background:#eee!important;color:#111!important;}
+      .tool-badge{background:#333!important;color:#fff!important;}
+    }
+    .report-cover{padding:60px 48px;border-bottom:3px solid #e8a225;min-height:200px;}
+    .report-title{font-size:28px;font-weight:700;color:#e8a225;letter-spacing:3px;margin-bottom:8px;}
+    .report-sub{font-size:12px;color:#6b7480;letter-spacing:2px;}
+    .report-meta{margin-top:20px;font-size:11px;color:#6b7480;}
+    .report-meta span{color:#d4cfc4;margin-right:16px;}
+    .summary-section{padding:24px 48px;border-bottom:1px solid #1e2840;}
+    .section-title{font-size:11px;letter-spacing:2px;color:#e8a225;margin-bottom:12px;text-transform:uppercase;}
+    .summary-table{width:100%;border-collapse:collapse;}
+    .summary-table th{text-align:left;padding:8px 12px;font-size:10px;letter-spacing:1px;background:#141920;color:#6b7480;border-bottom:1px solid #1e2840;}
+    .summary-table td{padding:8px 12px;font-size:11px;border-bottom:1px solid rgba(255,255,255,.04);}
+    .summary-table tr:hover td{background:rgba(232,162,37,.04);}
+    .findings-section{padding:24px 48px;}
+    .finding{margin-bottom:32px;border:1px solid #1e2840;border-radius:4px;overflow:hidden;}
+    .finding-header{padding:12px 16px;background:#0f1318;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+    .tool-badge{background:rgba(232,162,37,.15);color:#e8a225;border:1px solid rgba(232,162,37,.3);padding:2px 10px;font-size:10px;letter-spacing:1px;border-radius:2px;}
+    .finding-target{font-size:13px;font-weight:700;color:#d4cfc4;}
+    .finding-ts{font-size:10px;color:#6b7480;margin-left:auto;}
+    .data-table{width:100%;border-collapse:collapse;}
+    .data-table td{padding:7px 16px;font-size:11px;border-bottom:1px solid rgba(255,255,255,.03);vertical-align:top;}
+    .data-table td:first-child{color:#6b7480;width:220px;font-size:10px;padding-right:8px;}
+    .data-table td:last-child{color:#d4cfc4;word-break:break-all;}
+    .data-table tr:last-child td{border-bottom:none;}
+    .data-table tr:nth-child(odd) td{background:rgba(255,255,255,.015);}
+    .print-btn{position:fixed;top:16px;right:16px;padding:8px 16px;background:#e8a225;color:#0a0c10;border:none;font-family:inherit;font-size:11px;font-weight:700;letter-spacing:1px;cursor:pointer;border-radius:2px;}
+    .print-btn:hover{background:#f0b030;}
+    .watermark{padding:16px 48px;font-size:9px;color:#6b7480;letter-spacing:1px;border-top:1px solid #1e2840;text-align:center;}
+  `;
+
+  const summaryRows = findings.map(f => `
+    <tr>
+      <td><span class="tool-badge">${f.tool}</span></td>
+      <td>${_escHtml(f.target)}</td>
+      <td>${f.ts.slice(0,10)} ${f.ts.slice(11,19)} UTC</td>
+    </tr>`).join('');
+
+  const findingSections = findings.map(f => {
+    const pairs = _flatten(f.data);
+    const rows = pairs.slice(0, 80).map(({k,v}) =>
+      `<tr><td>${_escHtml(k)}</td><td>${_escHtml(v)}</td></tr>`
+    ).join('');
+    return `
+      <div class="finding">
+        <div class="finding-header">
+          <span class="tool-badge">${_escHtml(f.tool)}</span>
+          <span class="finding-target">${_escHtml(f.target)}</span>
+          <span class="finding-ts">${f.ts.slice(0,10)} ${f.ts.slice(11,19)} UTC</span>
+        </div>
+        <table class="data-table">${rows || '<tr><td colspan="2" style="color:#6b7480;font-style:italic;">No structured data</td></tr>'}</table>
+      </div>`;
+  }).join('');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OSINT+ Report — ${ts}</title>
+<style>${css}</style>
+</head>
+<body>
+<button class="print-btn no-print" onclick="window.print()">⎙ PRINT / SAVE PDF</button>
+
+<div class="report-cover">
+  <div class="report-title">OSINT+</div>
+  <div class="report-sub">INTELLIGENCE REPORT</div>
+  <div class="report-meta">
+    <div style="margin-top:12px;">
+      <span>Generated: ${ts}</span>
+      <span>Targets: ${findings.length}</span>
+    </div>
+  </div>
+</div>
+
+<div class="summary-section">
+  <div class="section-title">Summary</div>
+  <table class="summary-table">
+    <thead><tr><th>Tool</th><th>Target</th><th>Timestamp</th></tr></thead>
+    <tbody>${summaryRows}</tbody>
+  </table>
+</div>
+
+<div class="findings-section">
+  <div class="section-title">Detailed Findings</div>
+  ${findingSections}
+</div>
+
+<div class="watermark">OSINT+ Intelligence Suite · ${ts} · For authorized use only</div>
+</body>
+</html>`;
+}
+
+function _escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function generateReport() {
+  const findings = Object.values(window._osintSession);
+  if (!findings.length) {
+    alert('Belum ada data OSINT. Jalankan beberapa pencarian terlebih dahulu.');
+    return;
+  }
+  const html = buildReportHtml(findings);
+  const blob = new Blob([html], {type: 'text/html;charset=utf-8'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `osint-report-${new Date().toISOString().slice(0,19).replace(/[T:]/g,'-')}.html`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
 // Fix JS syntax in colors object
