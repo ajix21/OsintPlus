@@ -229,6 +229,183 @@ body::before{
   .form-col{width:100%;border-right:none;}
   .content{flex-direction:column;}
 }
+
+/* ══════════════════════════════════════
+   INSTAGRAM PROFILE CARD
+══════════════════════════════════════ */
+.ig-profile{
+  background:var(--bg3);
+  border:1px solid var(--border);
+  border-radius:8px;
+  overflow:hidden;
+  animation:igFadeIn .4s ease both;
+}
+@keyframes igFadeIn{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:none;}}
+
+/* banner gradient top strip */
+.ig-banner{
+  height:6px;
+  background:linear-gradient(90deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);
+}
+
+/* header: avatar + info */
+.ig-header{
+  display:flex;align-items:flex-start;gap:28px;
+  padding:24px 24px 20px;
+}
+.ig-avatar-wrap{position:relative;flex-shrink:0;}
+.ig-avatar-ring{
+  width:84px;height:84px;border-radius:50%;
+  padding:3px;
+  background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);
+  display:flex;align-items:center;justify-content:center;
+}
+.ig-avatar-ring.no-session{
+  background:var(--border2);
+}
+.ig-avatar{
+  width:78px;height:78px;border-radius:50%;
+  object-fit:cover;border:2px solid var(--bg3);
+  background:var(--bg2);
+}
+.ig-avatar-placeholder{
+  width:78px;height:78px;border-radius:50%;
+  background:var(--bg2);border:2px solid var(--bg3);
+  display:flex;align-items:center;justify-content:center;
+  color:var(--text-dim);font-size:26px;
+}
+.ig-deep-badge{
+  position:absolute;bottom:-2px;right:-2px;
+  width:22px;height:22px;border-radius:50%;
+  background:var(--amber);color:#0a0c10;
+  display:flex;align-items:center;justify-content:center;
+  font-size:10px;border:2px solid var(--bg3);
+}
+
+.ig-info{flex:1;min-width:0;}
+.ig-username-row{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  margin-bottom:10px;
+}
+.ig-username{
+  font-family:'Space Mono',monospace;font-size:15px;font-weight:700;
+  color:#fff;letter-spacing:0;
+}
+.ig-verified{
+  color:#3897f0;font-size:14px;
+}
+.ig-private-tag,.ig-public-tag{
+  font-size:9px;padding:2px 8px;border-radius:12px;font-weight:700;letter-spacing:.5px;
+}
+.ig-private-tag{background:rgba(226,75,74,.15);color:var(--red);border:1px solid rgba(226,75,74,.3);}
+.ig-public-tag{background:rgba(31,201,160,.1);color:var(--teal);border:1px solid rgba(31,201,160,.25);}
+.ig-deep-tag{
+  font-size:9px;padding:2px 8px;border-radius:12px;font-weight:700;letter-spacing:.5px;
+  background:rgba(232,162,37,.12);color:var(--amber);border:1px solid rgba(232,162,37,.3);
+}
+
+/* stats row */
+.ig-stats{
+  display:flex;gap:0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);
+  margin:0;
+}
+.ig-stat{
+  flex:1;text-align:center;padding:14px 8px;
+  border-right:1px solid var(--border);
+  animation:igFadeIn .4s ease both;
+}
+.ig-stat:last-child{border-right:none;}
+.ig-stat-n{
+  font-family:'Space Mono',monospace;font-size:13px;font-weight:700;
+  color:#fff;line-height:1;margin-bottom:3px;
+}
+.ig-stat-l{font-size:9px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;}
+
+/* bio */
+.ig-bio-section{padding:16px 24px;border-bottom:1px solid var(--border);}
+.ig-fullname{font-size:13px;font-weight:700;color:#fff;margin-bottom:6px;}
+.ig-bio-text{
+  font-size:12px;color:var(--text);line-height:1.65;
+  white-space:pre-wrap;word-break:break-word;
+}
+.ig-ext-link{
+  display:inline-flex;align-items:center;gap:5px;margin-top:8px;
+  color:#3897f0;font-size:12px;text-decoration:none;font-weight:600;
+}
+.ig-ext-link:hover{text-decoration:underline;}
+
+/* OSINT Intel Grid */
+.ig-intel-section{padding:16px 24px;border-bottom:1px solid var(--border);}
+.ig-section-label{
+  font-size:9px;letter-spacing:2px;text-transform:uppercase;
+  color:var(--text-dim);margin-bottom:12px;
+  display:flex;align-items:center;gap:8px;
+}
+.ig-section-label::after{content:'';flex:1;height:1px;background:var(--border);}
+.ig-intel-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;}
+.ig-pill{
+  background:var(--bg2);border:1px solid var(--border);border-radius:6px;
+  padding:10px 12px;display:flex;flex-direction:column;gap:3px;
+  transition:border-color .15s;
+}
+.ig-pill:hover{border-color:var(--border2);}
+.ig-pill-label{font-size:9px;color:var(--text-dim);letter-spacing:.5px;text-transform:uppercase;}
+.ig-pill-val{font-size:12px;font-weight:700;color:#fff;}
+.ig-pill-val.amber{color:var(--amber);}
+.ig-pill-val.teal{color:var(--teal);}
+.ig-pill-val.red{color:var(--red);}
+.ig-pill-val.blue{color:#3897f0;}
+.ig-pill-val.dim{color:var(--text-dim);}
+
+/* Deep Scan Section (Toutatis) */
+.ig-deep-section{padding:16px 24px;border-bottom:1px solid var(--border);}
+.ig-contact-grid{display:flex;flex-direction:column;gap:8px;}
+.ig-contact-row{
+  display:flex;align-items:center;gap:12px;
+  padding:10px 14px;border-radius:6px;
+  background:var(--bg2);border:1px solid var(--border);
+}
+.ig-contact-icon{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;}
+.ig-contact-icon.amber{background:rgba(232,162,37,.12);color:var(--amber);}
+.ig-contact-icon.teal{background:rgba(31,201,160,.1);color:var(--teal);}
+.ig-contact-icon.blue{background:rgba(56,151,240,.1);color:#3897f0;}
+.ig-contact-icon.red{background:rgba(226,75,74,.1);color:var(--red);}
+.ig-contact-icon.wa{background:rgba(37,211,102,.1);color:#25d366;}
+.ig-contact-body{flex:1;min-width:0;}
+.ig-contact-label{font-size:9px;color:var(--text-dim);letter-spacing:.5px;text-transform:uppercase;margin-bottom:2px;}
+.ig-contact-val{font-size:12px;color:#fff;font-weight:600;word-break:break-all;}
+.ig-contact-val.dim{color:var(--text-dim);font-weight:400;font-style:italic;}
+
+/* Lookup card */
+.ig-lookup-section{padding:16px 24px;}
+.ig-lookup-card{
+  border:1px solid rgba(232,162,37,.2);
+  background:rgba(232,162,37,.03);
+  border-radius:6px;padding:14px;
+}
+.ig-lookup-row{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:11px;
+}
+.ig-lookup-row:last-child{border-bottom:none;}
+.ig-lookup-key{color:var(--text-dim);}
+.ig-lookup-val{color:var(--amber);font-weight:600;}
+.ig-lookup-val.dim{color:var(--text-dim);font-style:italic;font-weight:400;}
+
+/* Profile footer */
+.ig-footer{
+  padding:12px 24px;display:flex;align-items:center;justify-content:space-between;
+  background:var(--bg2);border-top:1px solid var(--border);
+}
+.ig-open-btn{
+  display:inline-flex;align-items:center;gap:6px;
+  background:rgba(232,162,37,.1);border:1px solid rgba(232,162,37,.3);
+  color:var(--amber);padding:7px 14px;border-radius:4px;font-size:10px;
+  font-family:'Space Mono',monospace;letter-spacing:1px;text-decoration:none;
+  transition:all .15s;font-weight:700;
+}
+.ig-open-btn:hover{background:rgba(232,162,37,.18);}
+.ig-userid-chip{font-size:9px;color:var(--text-dim);font-family:'Space Mono',monospace;}
 </style>
 </head>
 <body>
@@ -317,7 +494,6 @@ body::before{
         <div class="tool-header">
           <div class="tool-name"><i class="fas fa-user-astronaut"></i> MAIGRET</div>
           <div class="tool-desc">Search username across 2,500+ websites and social networks.</div>
-          <div class="tool-source">Source: maigret · pip install maigret</div>
         </div>
         <div class="field">
           <label>Target Username</label>
@@ -333,7 +509,6 @@ body::before{
         <div class="tool-header">
           <div class="tool-name"><i class="fas fa-envelope-open-text"></i> HOLEHE</div>
           <div class="tool-desc">Check which services have an account linked to an email address.</div>
-          <div class="tool-source">Source: holehe · pip install holehe</div>
         </div>
         <div class="field">
           <label>Target Email</label>
@@ -349,7 +524,6 @@ body::before{
         <div class="tool-header">
           <div class="tool-name"><i class="fab fa-google"></i> GHUNT</div>
           <div class="tool-desc">Google account OSINT — Gmail existence, Gravatar, public profile data.</div>
-          <div class="tool-source">Source: ghunt (simplified) · Google OSINT</div>
         </div>
         <div class="field">
           <label>Gmail / Google Email</label>
@@ -365,7 +539,6 @@ body::before{
         <div class="tool-header">
           <div class="tool-name"><i class="fas fa-mobile-alt"></i> IPINFO — PHONE</div>
           <div class="tool-desc">Phone number lookup: country, carrier, line type, timezone.</div>
-          <div class="tool-source">Source: phonenumbers · ipinfo.io</div>
         </div>
         <div class="field">
           <label>Phone Number (with country code)</label>
@@ -382,7 +555,6 @@ body::before{
         <div class="tool-header">
           <div class="tool-name"><i class="fas fa-globe"></i> WHOIS</div>
           <div class="tool-desc">Domain registration, DNS, IP, SSL certificate analysis.</div>
-          <div class="tool-source">Source: python-whois · ipinfo.io · SSL</div>
         </div>
         <div class="field">
           <label>Domain or URL</label>
@@ -398,7 +570,6 @@ body::before{
         <div class="tool-header">
           <div class="tool-name"><i class="fab fa-instagram"></i> IGINFO</div>
           <div class="tool-desc">Instagram public profile OSINT — followers, posts, bio, user ID.</div>
-          <div class="tool-source">Source: instaloader · pip install instaloader</div>
         </div>
         <div class="field">
           <label>Instagram Username</label>
@@ -414,17 +585,11 @@ body::before{
         <div class="tool-header">
           <div class="tool-name"><i class="fas fa-spider"></i> TOUTATIS</div>
           <div class="tool-desc">Deep Instagram OSINT — phone number, email, exact location from business accounts.</div>
-          <div class="tool-source">Source: toutatis · pip install toutatis</div>
         </div>
-        <div class="alert warn"><i class="fas fa-exclamation-triangle"></i> Requires Instagram Session ID (sessionid cookie)</div>
+        <div class="alert info"><i class="fas fa-key"></i> Session ID diambil dari .env secara otomatis</div>
         <div class="field">
           <label>Instagram Username</label>
           <input id="tout-username" placeholder="username (without @)">
-        </div>
-        <div class="field">
-          <label>Session ID (sessionid cookie)</label>
-          <input id="tout-session" placeholder="paste your Instagram sessionid here">
-          <div class="field-hint">Browser DevTools → Application → Cookies → instagram.com → sessionid</div>
         </div>
         <button class="btn" onclick="runToutatis()" id="btn-toutatis">
           <i class="fas fa-spider"></i> DEEP SCAN
@@ -436,7 +601,6 @@ body::before{
         <div class="tool-header">
           <div class="tool-name"><i class="fas fa-database"></i> HIBP — EMAIL</div>
           <div class="tool-desc">Check if email was exposed in data breaches and paste sites.</div>
-          <div class="tool-source">Source: haveibeenpwned.com/api/v3 — Requires API key</div>
         </div>
         <div class="field">
           <label>Email Address</label>
@@ -453,7 +617,6 @@ body::before{
         <div class="tool-header">
           <div class="tool-name"><i class="fas fa-key"></i> HIBP — PASSWORD</div>
           <div class="tool-desc">Check if a password was exposed in known data breaches using k-anonymity (no key needed).</div>
-          <div class="tool-source">Source: api.pwnedpasswords.com — No API key needed</div>
         </div>
         <div class="alert info"><i class="fas fa-lock"></i> Password is hashed locally. Only first 5 chars of SHA-1 are sent.</div>
         <div class="field">
@@ -470,7 +633,6 @@ body::before{
         <div class="tool-header">
           <div class="tool-name"><i class="fas fa-comments"></i> TELCEK</div>
           <div class="tool-desc">Check phone number registration on Telegram, WhatsApp, Viber, and other messengers.</div>
-          <div class="tool-source">Source: phonenumbers · wa.me · Telegram deep links</div>
         </div>
         <div class="field">
           <label>Phone Number (with country code)</label>
@@ -826,6 +988,14 @@ async function runWhois() {
 }
 
 // ─── IGINFO ───
+function fmtCount(n) {
+  if (n == null) return '—';
+  if (n >= 1e9) return (n/1e9).toFixed(1).replace(/\.0$/,'') + 'B';
+  if (n >= 1e6) return (n/1e6).toFixed(1).replace(/\.0$/,'') + 'M';
+  if (n >= 1e3) return (n/1e3).toFixed(1).replace(/\.0$/,'') + 'K';
+  return n.toLocaleString();
+}
+
 async function runIgInfo() {
   const username = document.getElementById('ig-username').value.trim().replace('@','');
   if (!username) return;
@@ -836,77 +1006,237 @@ async function runIgInfo() {
 
   if (data.error) { setResult(alert_(data.error,'err')); return; }
 
-  let html = `<div class="card">
-    <div class="card-header">
-      <span class="card-icon" style="color:#e1306c;"><i class="fab fa-instagram"></i></span>
-      <span class="card-title">@${data.username}</span>
-      ${data.is_verified ? badge('VERIFIED','found') : ''}
-      ${data.is_private ? badge('PRIVATE','warn') : badge('PUBLIC','info')}
+  const avatarHtml = data.profile_pic_url
+    ? `<img class="ig-avatar" src="${data.profile_pic_url}" alt="avatar" onerror="this.outerHTML='<div class=\\'ig-avatar-placeholder\\'><i class=\\'fab fa-instagram\\'></i></div>'">`
+    : `<div class="ig-avatar-placeholder"><i class="fab fa-instagram"></i></div>`;
+
+  const pillsData = [
+    { label:'User ID',    val: data.userid || '—',                          cls:'amber' },
+    { label:'Account',    val: data.is_business ? 'Business' : 'Personal',  cls: data.is_business ? 'amber' : 'teal' },
+    { label:'Verified',   val: data.is_verified ? '✓ Yes' : '✗ No',        cls: data.is_verified ? 'blue' : 'dim' },
+    { label:'Private',    val: data.is_private  ? '🔒 Yes' : '🌐 No',      cls: data.is_private  ? 'red'  : 'teal' },
+  ];
+  if (data.business_category) pillsData.push({ label:'Category', val: data.business_category, cls:'amber' });
+  if (data.pronouns && data.pronouns.length) pillsData.push({ label:'Pronouns', val: data.pronouns.join(', '), cls:'teal' });
+
+  const pillsHtml = pillsData.map(p =>
+    `<div class="ig-pill">
+      <div class="ig-pill-label">${p.label}</div>
+      <div class="ig-pill-val ${p.cls}">${p.val}</div>
+    </div>`
+  ).join('');
+
+  const html = `
+  <div class="ig-profile">
+    <div class="ig-banner"></div>
+
+    <div class="ig-header">
+      <div class="ig-avatar-wrap">
+        <div class="ig-avatar-ring">${avatarHtml}</div>
+      </div>
+      <div class="ig-info">
+        <div class="ig-username-row">
+          <span class="ig-username">@${data.username}</span>
+          ${data.is_verified ? '<i class="fas fa-check-circle ig-verified" title="Verified"></i>' : ''}
+          ${data.is_private ? '<span class="ig-private-tag">PRIVATE</span>' : '<span class="ig-public-tag">PUBLIC</span>'}
+        </div>
+        ${data.full_name ? `<div class="ig-fullname">${data.full_name}</div>` : ''}
+        ${data.external_url
+          ? `<a class="ig-ext-link" href="${data.external_url}" target="_blank" rel="noopener">
+              <i class="fas fa-link" style="font-size:10px;"></i>${data.external_url}
+            </a>`
+          : ''}
+      </div>
     </div>
-    <div class="card-body">
-      ${kv('Full Name',       data.full_name)}
-      ${kv('User ID',         data.userid, 'cyan')}
-      ${kv('Followers',       (data.followers||0).toLocaleString(), 'green')}
-      ${kv('Following',       (data.followees||0).toLocaleString())}
-      ${kv('Posts',           (data.posts||0).toLocaleString())}
-      ${kv('Verified',        data.is_verified ? '✓ Yes' : '✗ No', data.is_verified?'green':'dim')}
-      ${kv('Private',         data.is_private  ? '✓ Yes' : '✗ No', data.is_private?'pink':'dim')}
-      ${kv('Business',        data.is_business ? '✓ Yes' : '✗ No', data.is_business?'orange':'dim')}
-      ${data.business_category ? kv('Business Category', data.business_category, 'orange') : ''}
-      ${data.external_url ? kv('External URL', `<a href="${data.external_url}" class="link" target="_blank">${data.external_url}</a>`) : ''}
+
+    <div class="ig-stats">
+      <div class="ig-stat">
+        <div class="ig-stat-n">${fmtCount(data.posts)}</div>
+        <div class="ig-stat-l">Posts</div>
+      </div>
+      <div class="ig-stat">
+        <div class="ig-stat-n">${(data.followers||0).toLocaleString()}</div>
+        <div class="ig-stat-l">Followers</div>
+      </div>
+      <div class="ig-stat">
+        <div class="ig-stat-n">${(data.followees||0).toLocaleString()}</div>
+        <div class="ig-stat-l">Following</div>
+      </div>
+    </div>
+
+    ${data.biography ? `
+    <div class="ig-bio-section">
+      <div class="ig-section-label">Bio</div>
+      <div class="ig-bio-text">${data.biography.replace(/</g,'&lt;')}</div>
+    </div>` : ''}
+
+    <div class="ig-intel-section">
+      <div class="ig-section-label">OSINT Intel</div>
+      <div class="ig-intel-grid">${pillsHtml}</div>
+    </div>
+
+    <div class="ig-footer">
+      <a class="ig-open-btn" href="${data.instagram_url}" target="_blank" rel="noopener">
+        <i class="fab fa-instagram"></i> OPEN PROFILE
+      </a>
+      <span class="ig-userid-chip">ID: ${data.userid || '—'}</span>
     </div>
   </div>`;
 
-  if (data.biography) {
-    html += `<div class="card">
-      <div class="card-header"><span class="card-icon"><i class="fas fa-align-left"></i></span><span class="card-title">Biography</span></div>
-      <div class="card-body"><div style="font-size:11px;line-height:1.7;color:var(--text);">${data.biography}</div></div>
-    </div>`;
-  }
-
-  if (data.profile_pic_url) {
-    html += `<div class="card">
-      <div class="card-header"><span class="card-icon"><i class="fas fa-image"></i></span><span class="card-title">Profile Picture</span></div>
-      <div class="card-body">
-        <a href="${data.instagram_url}" target="_blank">
-          <img src="${data.profile_pic_url}" style="max-width:120px;max-height:120px;border:1px solid var(--border);border-radius:50%;" onerror="this.style.display='none'">
-        </a>
-        <div style="margin-top:8px;"><a href="${data.instagram_url}" class="link" target="_blank"><i class="fab fa-instagram"></i> Open Profile</a></div>
-      </div>
-    </div>`;
-  }
   setResult(html);
 }
 
 // ─── TOUTATIS ───
 async function runToutatis() {
-  const username  = document.getElementById('tout-username').value.trim().replace('@','');
-  const sessionid = document.getElementById('tout-session').value.trim();
+  const username = document.getElementById('tout-username').value.trim().replace('@','');
   if (!username) return;
   setBtnLoading('btn-toutatis', true);
   setLoading('RUNNING TOUTATIS DEEP SCAN...');
-  const data = await post('/api/instagram/toutatis', {username, sessionid});
+  const data = await post('/api/instagram/toutatis', {username});
   setBtnLoading('btn-toutatis', false);
 
   if (data.error) { setResult(alert_(data.error,'err')); return; }
 
-  const d = data.data || data;
-  let html = `<div class="card">
-    <div class="card-header">
-      <span class="card-icon" style="color:var(--amber);"><i class="fas fa-spider"></i></span>
-      <span class="card-title">Toutatis — @${data.username}</span>
-      ${badge('DEEP SCAN','found')}
-    </div>
-    <div class="card-body">`;
+  const avatarHtml = data.profile_pic_url
+    ? `<img class="ig-avatar" src="${data.profile_pic_url}" alt="avatar" onerror="this.outerHTML='<div class=\\'ig-avatar-placeholder\\'><i class=\\'fab fa-instagram\\'></i></div>'">`
+    : `<div class="ig-avatar-placeholder"><i class="fab fa-instagram"></i></div>`;
 
-  if (typeof d === 'object') {
-    Object.entries(d).forEach(([k,v]) => {
-      if (v && v !== 'None' && v !== null) html += kv(k, typeof v === 'object' ? JSON.stringify(v) : v);
-    });
-  } else {
-    html += `<div style="font-size:11px;">${JSON.stringify(d, null, 2)}</div>`;
+  // Intelligence pills
+  const acctTypeMap = {1:'Personal',2:'Creator',3:'Business'};
+  const pillsData = [
+    { label:'User ID',        val: data.user_id || '—',                                       cls:'amber' },
+    { label:'Account Type',   val: acctTypeMap[data.account_type] || data.account_type || '—', cls:'amber' },
+    { label:'Verified',       val: data.is_verified      ? '✓ Yes' : '✗ No',                  cls: data.is_verified      ? 'blue' : 'dim' },
+    { label:'Private',        val: data.is_private       ? '🔒 Yes' : '🌐 No',                cls: data.is_private       ? 'red'  : 'teal' },
+    { label:'Business',       val: data.is_business      ? '✓ Yes' : '✗ No',                  cls: data.is_business      ? 'amber': 'dim' },
+    { label:'WhatsApp',       val: data.is_whatsapp_linked ? '✓ Linked' : '✗ No',             cls: data.is_whatsapp_linked ? 'teal' : 'dim' },
+    { label:'Memorialized',   val: data.is_memorialized  ? '✓ Yes' : '✗ No',                  cls: data.is_memorialized  ? 'red'  : 'dim' },
+    { label:'New Account',    val: data.is_new_to_instagram ? '✓ Yes' : '✗ No',               cls: data.is_new_to_instagram ? 'amber': 'dim' },
+    { label:'IGTV Videos',   val: (data.total_igtv_videos||0).toString(),                      cls:'teal' },
+  ];
+  const pillsHtml = pillsData.map(p =>
+    `<div class="ig-pill">
+      <div class="ig-pill-label">${p.label}</div>
+      <div class="ig-pill-val ${p.cls}">${p.val}</div>
+    </div>`
+  ).join('');
+
+  // Contact / deep data rows
+  const contactRows = [];
+  if (data.public_email) {
+    contactRows.push({icon:'fas fa-envelope',cls:'teal',label:'Public Email',val:data.public_email});
   }
-  html += `</div></div>`;
+  if (data.public_phone) {
+    contactRows.push({icon:'fas fa-phone',cls:'amber',label:'Public Phone',val:data.public_phone});
+  }
+  if (data.external_url) {
+    contactRows.push({icon:'fas fa-link',cls:'blue',label:'External URL',val:`<a href="${data.external_url}" target="_blank" style="color:#3897f0;text-decoration:none;">${data.external_url}</a>`});
+  }
+  if (data.is_whatsapp_linked) {
+    contactRows.push({icon:'fab fa-whatsapp',cls:'wa',label:'WhatsApp',val:'Linked to this account'});
+  }
+
+  const contactHtml = contactRows.length
+    ? `<div class="ig-deep-section">
+        <div class="ig-section-label">Contact & Links</div>
+        <div class="ig-contact-grid">
+          ${contactRows.map(r => `
+            <div class="ig-contact-row">
+              <div class="ig-contact-icon ${r.cls}"><i class="${r.icon}"></i></div>
+              <div class="ig-contact-body">
+                <div class="ig-contact-label">${r.label}</div>
+                <div class="ig-contact-val">${r.val}</div>
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>`
+    : '';
+
+  // Lookup section
+  let lookupHtml = '';
+  const lk = data.lookup || {};
+  if (lk.lookup_status) {
+    lookupHtml = `<div class="ig-lookup-section">
+      <div class="ig-section-label">Advanced Lookup</div>
+      <div class="ig-lookup-card">
+        <div class="ig-lookup-row">
+          <span class="ig-lookup-key">Status</span>
+          <span class="ig-lookup-val dim">${lk.lookup_status}</span>
+        </div>
+      </div>
+    </div>`;
+  } else if (lk.obfuscated_email != null || lk.obfuscated_phone != null) {
+    const rows = [];
+    if (lk.obfuscated_email) rows.push(['Obfuscated Email', lk.obfuscated_email]);
+    if (lk.obfuscated_phone) rows.push(['Obfuscated Phone', lk.obfuscated_phone]);
+    lookupHtml = `<div class="ig-lookup-section">
+      <div class="ig-section-label">Advanced Lookup</div>
+      <div class="ig-lookup-card">
+        ${rows.map(([k,v]) => `<div class="ig-lookup-row"><span class="ig-lookup-key">${k}</span><span class="ig-lookup-val">${v}</span></div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  const html = `
+  <div class="ig-profile">
+    <div class="ig-banner"></div>
+
+    <div class="ig-header">
+      <div class="ig-avatar-wrap">
+        <div class="ig-avatar-ring">${avatarHtml}</div>
+        <div class="ig-deep-badge" title="Deep Scan"><i class="fas fa-spider"></i></div>
+      </div>
+      <div class="ig-info">
+        <div class="ig-username-row">
+          <span class="ig-username">@${data.username}</span>
+          ${data.is_verified ? '<i class="fas fa-check-circle ig-verified" title="Verified"></i>' : ''}
+          ${data.is_private ? '<span class="ig-private-tag">PRIVATE</span>' : '<span class="ig-public-tag">PUBLIC</span>'}
+          <span class="ig-deep-tag"><i class="fas fa-spider" style="font-size:8px;"></i> DEEP SCAN</span>
+        </div>
+        ${data.full_name ? `<div class="ig-fullname">${data.full_name}</div>` : ''}
+        <div style="margin-top:6px;font-size:10px;color:var(--text-dim);">
+          ID: <span style="color:var(--amber);font-weight:600;">${data.user_id || '—'}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="ig-stats">
+      <div class="ig-stat">
+        <div class="ig-stat-n">${fmtCount(data.media_count)}</div>
+        <div class="ig-stat-l">Posts</div>
+      </div>
+      <div class="ig-stat">
+        <div class="ig-stat-n">${(data.follower_count||0).toLocaleString()}</div>
+        <div class="ig-stat-l">Followers</div>
+      </div>
+      <div class="ig-stat">
+        <div class="ig-stat-n">${(data.following_count||0).toLocaleString()}</div>
+        <div class="ig-stat-l">Following</div>
+      </div>
+    </div>
+
+    ${data.biography ? `
+    <div class="ig-bio-section">
+      <div class="ig-section-label">Bio</div>
+      <div class="ig-bio-text">${data.biography.replace(/</g,'&lt;')}</div>
+    </div>` : ''}
+
+    <div class="ig-intel-section">
+      <div class="ig-section-label">Intelligence</div>
+      <div class="ig-intel-grid">${pillsHtml}</div>
+    </div>
+
+    ${contactHtml}
+    ${lookupHtml}
+
+    <div class="ig-footer">
+      <a class="ig-open-btn" href="${data.instagram_url}" target="_blank" rel="noopener">
+        <i class="fab fa-instagram"></i> OPEN PROFILE
+      </a>
+      <span class="ig-userid-chip">toutatis · deep scan</span>
+    </div>
+  </div>`;
+
   setResult(html);
 }
 

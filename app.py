@@ -401,60 +401,51 @@ def domain_lookup():
 @app.route("/api/instagram/info", methods=["POST"])
 def instagram_info():
     from urllib.parse import unquote
+    import instaloader
     data = request.json or {}
     username = data.get("username", "").strip().lstrip("@")
     if not username:
         return jsonify({"error": "Username required"}), 400
 
     session_id = unquote(INSTAGRAM_SESSIONID) if INSTAGRAM_SESSIONID else ""
+    if not session_id:
+        return jsonify({"error": "INSTAGRAM_SESSIONID belum diset di .env"}), 400
 
-    # Use Instagram web API directly with session cookie
-    ig_headers = {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-        "Accept": "*/*",
-        "Accept-Language": "en-US,en;q=0.9",
-        "X-IG-App-ID": "936619743392459",
-        "X-Requested-With": "XMLHttpRequest",
-        "Referer": f"https://www.instagram.com/{username}/",
-    }
-    ig_cookies = {}
-    if session_id:
-        ig_cookies["sessionid"] = session_id
-        ig_cookies["ds_user_id"] = session_id.split(":")[0]
+    # Extract user_id from session_id (format: userid:hash:num:token)
+    parts = session_id.split(":")
+    user_id_str = parts[0] if parts else ""
 
     try:
-        # Try web_profile_info API
-        r = requests.get(
-            f"https://www.instagram.com/api/v1/users/web_profile_info/?username={username}",
-            headers=ig_headers, cookies=ig_cookies, timeout=15
-        )
-        if r.status_code == 200:
-            raw = r.json()
-            u = raw.get("data", {}).get("user", {})
-            if not u:
-                return jsonify({"error": f"Profile '{username}' tidak ditemukan"}), 404
-            return jsonify({
-                "username":          u.get("username"),
-                "userid":            u.get("id"),
-                "full_name":         u.get("full_name"),
-                "biography":         u.get("biography"),
-                "followers":         u.get("edge_followed_by", {}).get("count"),
-                "followees":         u.get("edge_follow", {}).get("count"),
-                "posts":             u.get("edge_owner_to_timeline_media", {}).get("count"),
-                "is_private":        u.get("is_private"),
-                "is_verified":       u.get("is_verified"),
-                "is_business":       u.get("is_business_account"),
-                "business_category": u.get("business_category_name"),
-                "external_url":      u.get("external_url"),
-                "profile_pic_url":   u.get("profile_pic_url_hd") or u.get("profile_pic_url"),
-                "instagram_url":     f"https://www.instagram.com/{username}/",
-                "pronouns":          u.get("pronouns"),
-                "account_type":      u.get("account_type"),
-            })
-        elif r.status_code == 401:
-            return jsonify({"error": "Session ID tidak valid atau sudah expired. Perbarui INSTAGRAM_SESSIONID di .env"}), 401
-        else:
-            return jsonify({"error": f"Instagram API mengembalikan HTTP {r.status_code}"}), r.status_code
+        L = instaloader.Instaloader(quiet=True, download_pictures=False,
+                                    download_videos=False, download_video_thumbnails=False,
+                                    compress_json=False, save_metadata=False)
+        L.context._session.cookies.set("sessionid", session_id, domain=".instagram.com")
+        if user_id_str:
+            L.context._session.cookies.set("ds_user_id", user_id_str, domain=".instagram.com")
+
+        profile = instaloader.Profile.from_username(L.context, username)
+        return jsonify({
+            "username":          profile.username,
+            "userid":            profile.userid,
+            "full_name":         profile.full_name,
+            "biography":         profile.biography,
+            "followers":         profile.followers,
+            "followees":         profile.followees,
+            "posts":             profile.mediacount,
+            "is_private":        profile.is_private,
+            "is_verified":       profile.is_verified,
+            "is_business":       profile.is_business_account,
+            "business_category": profile.business_category_name,
+            "external_url":      profile.external_url,
+            "profile_pic_url":   profile.profile_pic_url,
+            "instagram_url":     f"https://www.instagram.com/{username}/",
+        })
+    except instaloader.exceptions.ProfileNotExistsException:
+        return jsonify({"error": f"Profile '{username}' tidak ditemukan"}), 404
+    except instaloader.exceptions.LoginRequiredException:
+        return jsonify({"error": "Session ID tidak valid atau sudah expired. Perbarui INSTAGRAM_SESSIONID di .env"}), 401
+    except instaloader.exceptions.ConnectionException as exc:
+        return jsonify({"error": f"Koneksi ke Instagram gagal: {exc}"}), 503
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
@@ -465,6 +456,10 @@ def instagram_info():
 @app.route("/api/instagram/toutatis", methods=["POST"])
 def instagram_toutatis():
     from urllib.parse import unquote
+    from urllib.parse import quote_plus
+    from json import dumps as jdumps, decoder as jdecoder
+    import instaloader
+
     data = request.json or {}
     username  = data.get("username", "").strip().lstrip("@")
     _raw_sid  = data.get("sessionid") or INSTAGRAM_SESSIONID or ""
@@ -476,12 +471,97 @@ def instagram_toutatis():
         return jsonify({"error": "Instagram sessionid required (set in .env atau kirim di request)"}), 400
 
     try:
-        from toutatis.core import getUserId, getInfo
-        user_id = getUserId(username, sessionid)
-        infos   = getInfo(username, sessionid)
-        return jsonify({"username": username, "user_id": user_id, "data": infos})
-    except ImportError:
-        return jsonify({"error": "toutatis not installed — run: pip install toutatis"}), 500
+        # Step 1: resolve user_id via instaloader (bypasses blocked web_profile_info)
+        L = instaloader.Instaloader(quiet=True, download_pictures=False,
+                                    download_videos=False, download_video_thumbnails=False,
+                                    compress_json=False, save_metadata=False)
+        parts = sessionid.split(":")
+        L.context._session.cookies.set("sessionid", sessionid, domain=".instagram.com")
+        if parts:
+            L.context._session.cookies.set("ds_user_id", parts[0], domain=".instagram.com")
+
+        try:
+            profile = instaloader.Profile.from_username(L.context, username)
+        except instaloader.exceptions.ProfileNotExistsException:
+            return jsonify({"error": f"Profile '{username}' tidak ditemukan"}), 404
+        except instaloader.exceptions.LoginRequiredException:
+            return jsonify({"error": "Session ID tidak valid atau sudah expired"}), 401
+
+        user_id = str(profile.userid)
+
+        # Step 2: call Instagram mobile API for deep info
+        mobile_resp = requests.get(
+            f"https://i.instagram.com/api/v1/users/{user_id}/info/",
+            headers={"User-Agent": "Instagram 64.0.0.14.96"},
+            cookies={"sessionid": sessionid},
+            timeout=15,
+        )
+        if mobile_resp.status_code != 200:
+            return jsonify({"error": f"Instagram mobile API error: HTTP {mobile_resp.status_code}"}), mobile_resp.status_code
+
+        u = mobile_resp.json().get("user", {})
+
+        # Step 3: advanced_lookup for obfuscated email/phone (best-effort, may be rate-limited)
+        lookup_result = {}
+        try:
+            lookup_body = "signed_body=SIGNATURE." + quote_plus(
+                jdumps({"q": username, "skip_recovery": "1"}, separators=(",", ":"))
+            )
+            lookup_resp = requests.post(
+                "https://i.instagram.com/api/v1/users/lookup/",
+                headers={
+                    "Accept-Language": "en-US",
+                    "User-Agent": "Instagram 101.0.0.15.120",
+                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                    "X-IG-App-ID": "124024574287414",
+                    "Accept-Encoding": "gzip, deflate",
+                    "Host": "i.instagram.com",
+                    "Connection": "keep-alive",
+                    "Content-Length": str(len(lookup_body)),
+                },
+                data=lookup_body,
+                timeout=10,
+            )
+            if lookup_resp.status_code == 200:
+                ld = lookup_resp.json()
+                lookup_result = {
+                    "obfuscated_email": ld.get("obfuscated_email"),
+                    "obfuscated_phone": ld.get("obfuscated_phone"),
+                }
+            else:
+                lookup_result = {"lookup_status": f"rate limited (HTTP {lookup_resp.status_code})"}
+        except Exception:
+            lookup_result = {"lookup_status": "unavailable"}
+
+        # Build phone string if available
+        phone_str = None
+        if u.get("public_phone_number"):
+            phone_str = f"+{u.get('public_phone_country_code', '')} {u.get('public_phone_number', '')}".strip()
+
+        return jsonify({
+            "username":             u.get("username"),
+            "user_id":              user_id,
+            "full_name":            u.get("full_name"),
+            "biography":            u.get("biography"),
+            "account_type":         u.get("account_type"),
+            "is_private":           u.get("is_private"),
+            "is_verified":          u.get("is_verified"),
+            "is_business":          u.get("is_business"),
+            "is_whatsapp_linked":   u.get("is_whatsapp_linked"),
+            "is_memorialized":      u.get("is_memorialized"),
+            "is_new_to_instagram":  u.get("is_new_to_instagram"),
+            "follower_count":       u.get("follower_count"),
+            "following_count":      u.get("following_count"),
+            "media_count":          u.get("media_count"),
+            "total_igtv_videos":    u.get("total_igtv_videos"),
+            "external_url":         u.get("external_url"),
+            "public_email":         u.get("public_email") or None,
+            "public_phone":         phone_str,
+            "profile_pic_url":      (u.get("hd_profile_pic_url_info") or {}).get("url") or u.get("profile_pic_url"),
+            "instagram_url":        f"https://www.instagram.com/{username}/",
+            "lookup":               lookup_result,
+        })
+
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
