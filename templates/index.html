@@ -424,6 +424,13 @@ body::before{
     <i class="fas fa-user-astronaut"></i> maigret
     <span class="badge">2500+ sites</span>
   </a>
+  <a class="nav-item" onclick="show('username-multicheck')" href="#">
+    <i class="fas fa-th-large"></i> multicheck
+    <span class="badge">15 sites</span>
+  </a>
+  <a class="nav-item" onclick="show('username-github')" href="#">
+    <i class="fab fa-github"></i> github osint
+  </a>
 
   <div class="nav-section">Email</div>
   <a class="nav-item" onclick="show('email-holehe')" href="#">
@@ -436,6 +443,11 @@ body::before{
   <div class="nav-section">Phone</div>
   <a class="nav-item" onclick="show('phone-ipinfo')" href="#">
     <i class="fas fa-mobile-alt"></i> ipinfo
+  </a>
+
+  <div class="nav-section">IP / Network</div>
+  <a class="nav-item" onclick="show('ip-geo')" href="#">
+    <i class="fas fa-map-marker-alt"></i> ip geolocation
   </a>
 
   <div class="nav-section">Domain</div>
@@ -501,6 +513,53 @@ body::before{
         </div>
         <button class="btn" onclick="runMaigret()" id="btn-maigret">
           <i class="fas fa-search"></i> HUNT USERNAME
+        </button>
+      </div>
+
+      <!-- multicheck -->
+      <div class="panel" id="panel-username-multicheck">
+        <div class="tool-header">
+          <div class="tool-name"><i class="fas fa-th-large"></i> MULTICHECK</div>
+          <div class="tool-desc">Cek username secara serentak di 15 platform — GitHub, Reddit, Twitter, YouTube, Twitch, Telegram, dan lainnya.</div>
+        </div>
+        <div class="field">
+          <label>Target Username</label>
+          <input id="multi-username" placeholder="johndoe">
+        </div>
+        <button class="btn" onclick="runMulticheck()" id="btn-multicheck">
+          <i class="fas fa-th-large"></i> CHECK ALL PLATFORMS
+        </button>
+      </div>
+
+      <!-- github osint -->
+      <div class="panel" id="panel-username-github">
+        <div class="tool-header">
+          <div class="tool-name"><i class="fab fa-github"></i> GITHUB OSINT</div>
+          <div class="tool-desc">Profile, repositories, email dari commit history, followers, dan metadata akun GitHub.</div>
+          <div class="tool-source">GitHub API · opsional: set GITHUB_TOKEN di .env untuk rate limit lebih tinggi</div>
+        </div>
+        <div class="field">
+          <label>GitHub Username</label>
+          <input id="github-username" placeholder="torvalds">
+        </div>
+        <button class="btn" onclick="runGithub()" id="btn-github">
+          <i class="fab fa-github"></i> INVESTIGATE
+        </button>
+      </div>
+
+      <!-- ip geolocation -->
+      <div class="panel" id="panel-ip-geo">
+        <div class="tool-header">
+          <div class="tool-name"><i class="fas fa-map-marker-alt"></i> IP GEOLOCATION</div>
+          <div class="tool-desc">Lokasi, ISP, ASN, timezone, dan deteksi VPN/Proxy/Hosting dari alamat IP.</div>
+          <div class="tool-source">Source: ip-api.com · gratis, tanpa API key</div>
+        </div>
+        <div class="field">
+          <label>IP Address</label>
+          <input id="ip-input" placeholder="8.8.8.8">
+        </div>
+        <button class="btn" onclick="runIpLookup()" id="btn-ip">
+          <i class="fas fa-map-marker-alt"></i> LOOKUP IP
         </button>
       </div>
 
@@ -679,8 +738,11 @@ setInterval(tick, 1000); tick();
 // ─── NAVIGATION ───
 const TITLES = {
   'username-maigret':   'USERNAME — maigret',
+  'username-multicheck':'USERNAME — multicheck',
+  'username-github':    'USERNAME — github osint',
+  'ip-geo':             'IP — geolocation',
   'email-holehe':       'EMAIL — holehe',
-  'email-ghunt':        'EMAIL — ghunt',
+  'email-ghunt':        'EMAIL — email osint',
   'phone-ipinfo':       'PHONE — ipinfo',
   'domain-whois':       'DOMAIN — whois',
   'ig-info':            'INSTAGRAM — iginfo',
@@ -779,6 +841,229 @@ async function runMaigret() {
       </div>`).join('') + `</div>`;
   }
 
+  setResult(html);
+}
+
+// ─── IP GEOLOCATION ───
+async function runIpLookup() {
+  const ip = document.getElementById('ip-input').value.trim();
+  if (!ip) return;
+  setBtnLoading('btn-ip', true);
+  setLoading('LOCATING IP ADDRESS...');
+  const data = await post('/api/ip', {ip});
+  setBtnLoading('btn-ip', false);
+
+  if (data.error) { setResult(alert_(data.error, 'err')); return; }
+
+  const flags = [];
+  if (data.is_proxy)   flags.push(`<span class="tag pink">VPN / PROXY</span>`);
+  if (data.is_hosting) flags.push(`<span class="tag orange">HOSTING / DATACENTER</span>`);
+  if (data.is_mobile)  flags.push(`<span class="tag cyan">MOBILE</span>`);
+  if (!flags.length)   flags.push(`<span class="tag green">CLEAN IP</span>`);
+
+  let html = `<div class="card">
+    <div class="card-header">
+      <span class="card-icon" style="color:var(--amber);"><i class="fas fa-map-marker-alt"></i></span>
+      <span class="card-title">${data.ip}</span>
+      ${data.is_proxy ? badge('PROXY/VPN','pwned') : badge('CLEAN','found')}
+      ${data.is_hosting ? badge('HOSTING','warn') : ''}
+    </div>
+    <div class="card-body">
+      ${kv('IP Address',   data.ip, 'amber')}
+      ${kv('Country',      `${data.country} (${data.country_code})`)}
+      ${kv('Region',       data.region || '—')}
+      ${kv('City',         data.city   || '—')}
+      ${data.district ? kv('District', data.district) : ''}
+      ${data.zip      ? kv('ZIP',      data.zip) : ''}
+      ${kv('Continent',    data.continent)}
+      ${kv('Timezone',     data.timezone)}
+      ${kv('Currency',     data.currency)}
+      ${kv('Coordinates',  `<a href="${data.map_url}" target="_blank" class="link">${data.lat}, ${data.lon} — View Map</a>`)}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-icon" style="color:var(--blue);"><i class="fas fa-network-wired"></i></span>
+      <span class="card-title">Network Info</span>
+    </div>
+    <div class="card-body">
+      ${kv('ISP',          data.isp    || '—')}
+      ${kv('Organization', data.org    || '—')}
+      ${kv('ASN',          data.asn    || '—', 'cyan')}
+      ${kv('AS Name',      data.asname || '—')}
+      ${data.reverse_dns ? kv('Reverse DNS', data.reverse_dns, 'dim') : ''}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-icon" style="color:var(--red);"><i class="fas fa-shield-alt"></i></span>
+      <span class="card-title">Threat Indicators</span>
+    </div>
+    <div class="card-body">
+      ${kv('Proxy / VPN',  data.is_proxy   ? '⚠ YES — likely anonymized' : '✓ No', data.is_proxy   ? 'pink'  : 'green')}
+      ${kv('Hosting / DC', data.is_hosting ? '⚠ YES — datacenter IP'     : '✓ No', data.is_hosting ? 'orange': 'green')}
+      ${kv('Mobile IP',    data.is_mobile  ? '✓ Yes — cellular carrier'  : '✗ No', data.is_mobile  ? 'cyan'  : 'dim')}
+      <div class="tag-list" style="margin-top:8px;">${flags.join('')}</div>
+    </div>
+  </div>`;
+  setResult(html);
+}
+
+// ─── GITHUB OSINT ───
+async function runGithub() {
+  const username = document.getElementById('github-username').value.trim().replace('@','');
+  if (!username) return;
+  setBtnLoading('btn-github', true);
+  setLoading('INVESTIGATING GITHUB PROFILE...');
+  const data = await post('/api/github', {username});
+  setBtnLoading('btn-github', false);
+
+  if (data.error) { setResult(alert_(data.error, 'err')); return; }
+
+  const avatarHtml = data.avatar_url
+    ? `<img src="${data.avatar_url}" style="width:64px;height:64px;border-radius:50%;border:2px solid var(--border);object-fit:cover;" onerror="this.style.display='none'">`
+    : `<div style="width:64px;height:64px;border-radius:50%;background:var(--bg2);display:flex;align-items:center;justify-content:center;font-size:24px;color:var(--text-dim);"><i class="fab fa-github"></i></div>`;
+
+  let html = `<div class="card">
+    <div class="card-header">
+      <span class="card-icon" style="color:#fff;"><i class="fab fa-github"></i></span>
+      <span class="card-title">@${data.username}</span>
+      ${data.type === 'Organization' ? badge('ORG','info') : badge('USER','found')}
+      ${data.hireable ? badge('HIREABLE','found') : ''}
+    </div>
+    <div class="card-body">
+      <div style="display:flex;gap:16px;align-items:flex-start;margin-bottom:12px;">
+        ${avatarHtml}
+        <div style="flex:1;">
+          ${data.name ? `<div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:4px;">${data.name}</div>` : ''}
+          ${data.bio  ? `<div style="font-size:11px;color:var(--text);line-height:1.5;">${data.bio}</div>` : ''}
+        </div>
+      </div>
+      ${data.company  ? kv('Company',   data.company) : ''}
+      ${data.location ? kv('Location',  data.location, 'cyan') : ''}
+      ${data.email    ? kv('Email',     data.email, 'amber') : ''}
+      ${data.website  ? kv('Website',   `<a href="${data.website}" target="_blank" class="link">${data.website}</a>`) : ''}
+      ${data.twitter  ? kv('Twitter',   `<a href="https://twitter.com/${data.twitter}" target="_blank" class="link">@${data.twitter}</a>`) : ''}
+      ${kv('GitHub',    `<a href="${data.github_url}" target="_blank" class="link">${data.github_url}</a>`)}
+      ${kv('Created',   (data.created_at||'').slice(0,10), 'dim')}
+    </div>
+  </div>
+
+  <div class="summary-bar">
+    <div class="summary-stat"><div class="n">${(data.public_repos||0)}</div><div class="l">Repos</div></div>
+    <div class="summary-stat"><div class="n">${(data.public_gists||0)}</div><div class="l">Gists</div></div>
+    <div class="summary-stat"><div class="n">${(data.followers||0).toLocaleString()}</div><div class="l">Followers</div></div>
+    <div class="summary-stat"><div class="n">${(data.following||0).toLocaleString()}</div><div class="l">Following</div></div>
+  </div>`;
+
+  if ((data.commit_emails||[]).length) {
+    html += `<div class="card">
+      <div class="card-header">
+        <span class="card-icon" style="color:var(--amber);"><i class="fas fa-envelope"></i></span>
+        <span class="card-title">Emails from Commits (${data.commit_emails.length})</span>
+        ${badge('LEAKED','pwned')}
+      </div>
+      <div class="card-body">
+        ${data.commit_emails.map(e => `<div class="kv"><span class="kv-val amber">${e}</span></div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  if ((data.repos||[]).length) {
+    html += `<div class="card">
+      <div class="card-header">
+        <span class="card-icon" style="color:var(--blue);"><i class="fas fa-code-branch"></i></span>
+        <span class="card-title">Top Repositories</span>
+      </div>
+      <div class="card-body" style="padding:0;">
+        ${data.repos.map(r => `
+        <div class="platform-row">
+          <div class="platform-icon" style="color:${r.fork ? 'var(--text-dim)' : 'var(--teal)'};">
+            <i class="fas fa-${r.fork ? 'code-branch' : 'book'}"></i>
+          </div>
+          <div class="platform-info">
+            <div class="platform-name">
+              <a href="${r.url}" target="_blank" class="link" style="font-size:12px;color:#fff;">${r.name}</a>
+              ${r.language ? `<span class="tag" style="margin-left:6px;">${r.language}</span>` : ''}
+              ${r.fork ? '<span class="tag" style="margin-left:4px;">fork</span>' : ''}
+            </div>
+            ${r.description ? `<div class="platform-detail">${r.description.slice(0,80)}${r.description.length>80?'...':''}</div>` : ''}
+            <div class="platform-detail" style="margin-top:3px;">
+              <i class="fas fa-star" style="color:var(--amber);font-size:9px;"></i> ${r.stars}
+              &nbsp;&nbsp;<i class="fas fa-code-branch" style="color:var(--text-dim);font-size:9px;"></i> ${r.forks}
+            </div>
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>`;
+  }
+  setResult(html);
+}
+
+// ─── MULTICHECK ───
+async function runMulticheck() {
+  const username = document.getElementById('multi-username').value.trim().replace('@','');
+  if (!username) return;
+  setBtnLoading('btn-multicheck', true);
+  setLoading(`CHECKING @${username} ACROSS 15 PLATFORMS...`);
+  const data = await post('/api/username/multicheck', {username});
+  setBtnLoading('btn-multicheck', false);
+
+  if (data.error) { setResult(alert_(data.error, 'err')); return; }
+
+  const found    = data.found    || [];
+  const notFound = data.not_found|| [];
+  const unknown  = data.unknown  || [];
+
+  const catIcon = {
+    'social':'users','dev':'code','gaming':'gamepad',
+    'messenger':'comments','blog':'pen','security':'shield-alt'
+  };
+
+  let html = `<div class="summary-bar">
+    <div class="summary-stat"><div class="n">${found.length}</div><div class="l">Found</div></div>
+    <div class="summary-stat"><div class="n" style="font-size:16px;">${notFound.length}</div><div class="l">Not Found</div></div>
+    <div class="summary-stat"><div class="n" style="font-size:16px;color:var(--text-dim);">${unknown.length}</div><div class="l">Unknown</div></div>
+    <div class="summary-stat"><div class="n" style="font-size:16px;">${data.total}</div><div class="l">Total</div></div>
+  </div>`;
+
+  if (found.length) {
+    html += `<div class="card">
+      <div class="card-header">
+        <span class="card-icon" style="color:var(--teal);"><i class="fas fa-check-circle"></i></span>
+        <span class="card-title">Found (${found.length})</span>
+      </div>
+      <div class="card-body" style="padding:0;">
+        ${found.map(p => `
+        <div class="found-item">
+          <i class="fas fa-${catIcon[p.cat]||'circle'}" style="color:var(--teal);font-size:12px;"></i>
+          <span class="site">${p.name}</span>
+          <span class="cat">${p.cat}</span>
+          <a href="${p.url}" target="_blank" class="link"><i class="fas fa-external-link-alt"></i></a>
+        </div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  if (unknown.length) {
+    html += `<div class="card">
+      <div class="card-header">
+        <span class="card-icon" style="color:var(--text-dim);"><i class="fas fa-question-circle"></i></span>
+        <span class="card-title">Unknown / Blocked (${unknown.length})</span>
+      </div>
+      <div class="card-body" style="padding:0;">
+        ${unknown.map(p => `
+        <div class="found-item" style="opacity:.6;">
+          <i class="fas fa-${catIcon[p.cat]||'circle'}" style="color:var(--text-dim);font-size:12px;"></i>
+          <span class="site">${p.name}</span>
+          <span class="cat">${p.status}${p.http ? ' ('+p.http+')' : ''}</span>
+          <a href="${p.url}" target="_blank" class="link"><i class="fas fa-external-link-alt"></i></a>
+        </div>`).join('')}
+      </div>
+    </div>`;
+  }
   setResult(html);
 }
 

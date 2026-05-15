@@ -26,6 +26,7 @@ app.secret_key = os.urandom(24)
 IPINFO_TOKEN        = os.getenv("IPINFO_TOKEN", "")
 HIBP_API_KEY        = os.getenv("HIBP_API_KEY", "")
 INSTAGRAM_SESSIONID = os.getenv("INSTAGRAM_SESSIONID", "")
+GITHUB_TOKEN        = os.getenv("GITHUB_TOKEN", "")
 
 # ── In-memory cache for Instagram lookups ──────────────────────────────────
 _ig_cache: dict = {}          # { "ig:<username>": (timestamp, data) }
@@ -408,6 +409,242 @@ def domain_lookup():
         result["ssl"] = None
 
     return jsonify(result)
+
+
+# ─────────────────────────────────────────────
+# IP — Geolocation (ip-api.com)
+# ─────────────────────────────────────────────
+@app.route("/api/ip", methods=["POST"])
+def ip_lookup():
+    data = request.json or {}
+    ip = data.get("ip", "").strip()
+    if not ip:
+        return jsonify({"error": "IP address required"}), 400
+
+    # Basic IPv4/IPv6 sanity check
+    ip_clean = re.sub(r"[^0-9a-fA-F:.]", "", ip)
+    if not ip_clean:
+        return jsonify({"error": "Invalid IP address"}), 400
+
+    try:
+        fields = "status,message,continent,continentCode,country,countryCode,region,regionName,city,district,zip,lat,lon,timezone,offset,currency,isp,org,as,asname,reverse,mobile,proxy,hosting,query"
+        r = requests.get(
+            f"http://ip-api.com/json/{ip_clean}?fields={fields}",
+            timeout=10
+        )
+        if r.status_code != 200:
+            return jsonify({"error": f"ip-api.com error: HTTP {r.status_code}"}), 502
+
+        d = r.json()
+        if d.get("status") == "fail":
+            return jsonify({"error": d.get("message", "Invalid or reserved IP")}), 400
+
+        result = {
+            "ip":           d.get("query"),
+            "continent":    d.get("continent"),
+            "country":      d.get("country"),
+            "country_code": d.get("countryCode"),
+            "region":       d.get("regionName"),
+            "city":         d.get("city"),
+            "district":     d.get("district") or None,
+            "zip":          d.get("zip") or None,
+            "lat":          d.get("lat"),
+            "lon":          d.get("lon"),
+            "timezone":     d.get("timezone"),
+            "currency":     d.get("currency"),
+            "isp":          d.get("isp"),
+            "org":          d.get("org"),
+            "asn":          d.get("as"),
+            "asname":       d.get("asname"),
+            "reverse_dns":  d.get("reverse") or None,
+            "is_mobile":    d.get("mobile", False),
+            "is_proxy":     d.get("proxy", False),
+            "is_hosting":   d.get("hosting", False),
+            "map_url":      f"https://www.google.com/maps?q={d.get('lat')},{d.get('lon')}",
+            "source":       "ip-api.com",
+        }
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+# ─────────────────────────────────────────────
+# GITHUB — Profile OSINT
+# ─────────────────────────────────────────────
+@app.route("/api/github", methods=["POST"])
+def github_osint():
+    data = request.json or {}
+    username = data.get("username", "").strip().lstrip("@")
+    if not username or not re.match(r"^[\w\-]{1,39}$", username):
+        return jsonify({"error": "Invalid GitHub username"}), 400
+
+    gh_headers = {"Accept": "application/vnd.github+json",
+                  "User-Agent": "OsintPlus"}
+    if GITHUB_TOKEN:
+        gh_headers["Authorization"] = f"Bearer {GITHUB_TOKEN}"
+
+    try:
+        # Basic profile
+        r = requests.get(f"https://api.github.com/users/{username}",
+                         headers=gh_headers, timeout=10)
+        if r.status_code == 404:
+            return jsonify({"error": f"GitHub user '{username}' not found"}), 404
+        if r.status_code == 403:
+            return jsonify({"error": "GitHub API rate limit reached. Set GITHUB_TOKEN in .env"}), 429
+        if r.status_code != 200:
+            return jsonify({"error": f"GitHub API error: HTTP {r.status_code}"}), 502
+
+        u = r.json()
+        result = {
+            "username":     u.get("login"),
+            "name":         u.get("name"),
+            "bio":          u.get("bio"),
+            "company":      u.get("company"),
+            "location":     u.get("location"),
+            "email":        u.get("email"),
+            "website":      u.get("blog"),
+            "twitter":      u.get("twitter_username"),
+            "avatar_url":   u.get("avatar_url"),
+            "github_url":   u.get("html_url"),
+            "type":         u.get("type"),           # User / Organization
+            "public_repos": u.get("public_repos"),
+            "public_gists": u.get("public_gists"),
+            "followers":    u.get("followers"),
+            "following":    u.get("following"),
+            "created_at":   u.get("created_at"),
+            "updated_at":   u.get("updated_at"),
+            "hireable":     u.get("hireable"),
+            "repos":        [],
+            "commit_emails":[],
+        }
+
+        # Top repos (sorted by stars)
+        try:
+            rr = requests.get(
+                f"https://api.github.com/users/{username}/repos?per_page=100&sort=pushed",
+                headers=gh_headers, timeout=10)
+            if rr.status_code == 200:
+                repos = rr.json()
+                repos_sorted = sorted(repos, key=lambda x: x.get("stargazers_count", 0), reverse=True)
+                result["repos"] = [
+                    {
+                        "name":        repo["name"],
+                        "description": repo.get("description"),
+                        "language":    repo.get("language"),
+                        "stars":       repo.get("stargazers_count", 0),
+                        "forks":       repo.get("forks_count", 0),
+                        "url":         repo.get("html_url"),
+                        "fork":        repo.get("fork", False),
+                    }
+                    for repo in repos_sorted[:10]
+                ]
+        except Exception:
+            pass
+
+        # Extract emails from public commit events
+        emails_found = set()
+        try:
+            ev = requests.get(
+                f"https://api.github.com/users/{username}/events/public?per_page=50",
+                headers=gh_headers, timeout=10)
+            if ev.status_code == 200:
+                for event in ev.json():
+                    if event.get("type") == "PushEvent":
+                        for commit in event.get("payload", {}).get("commits", []):
+                            author = commit.get("author", {})
+                            email = author.get("email", "")
+                            name  = author.get("name", "")
+                            if email and not email.endswith("@users.noreply.github.com"):
+                                emails_found.add(f"{name} <{email}>")
+        except Exception:
+            pass
+
+        result["commit_emails"] = list(emails_found)
+        return jsonify(result)
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+# ─────────────────────────────────────────────
+# USERNAME — Multi-platform checker
+# ─────────────────────────────────────────────
+_PLATFORMS = [
+    {"name":"GitHub",    "cat":"dev",      "url":"https://github.com/{}",                        "found":[200], "not_found":[404]},
+    {"name":"Reddit",    "cat":"social",   "url":"https://www.reddit.com/user/{}/",               "found":[200], "not_found":[404]},
+    {"name":"Twitter/X", "cat":"social",   "url":"https://twitter.com/{}",                        "found":[200], "not_found":[404]},
+    {"name":"YouTube",   "cat":"social",   "url":"https://www.youtube.com/@{}",                   "found":[200], "not_found":[404]},
+    {"name":"Twitch",    "cat":"gaming",   "url":"https://www.twitch.tv/{}",                      "found":[200], "not_found":[404]},
+    {"name":"Pinterest", "cat":"social",   "url":"https://www.pinterest.com/{}/",                 "found":[200], "not_found":[404]},
+    {"name":"Snapchat",  "cat":"social",   "url":"https://www.snapchat.com/add/{}",               "found":[200], "not_found":[404]},
+    {"name":"Medium",    "cat":"blog",     "url":"https://medium.com/@{}",                        "found":[200], "not_found":[404]},
+    {"name":"Telegram",  "cat":"messenger","url":"https://t.me/{}",                               "found":[200], "not_found":[404],
+     "absent_text":"tgme_page_description"},
+    {"name":"Steam",     "cat":"gaming",   "url":"https://steamcommunity.com/id/{}",              "found":[200], "not_found":[404],
+     "absent_text":"error_ctn"},
+    {"name":"Keybase",   "cat":"security", "url":"https://keybase.io/{}",                         "found":[200], "not_found":[404]},
+    {"name":"Dev.to",    "cat":"dev",      "url":"https://dev.to/{}",                             "found":[200], "not_found":[404]},
+    {"name":"Linktree",  "cat":"social",   "url":"https://linktr.ee/{}",                          "found":[200], "not_found":[404]},
+    {"name":"HackerNews","cat":"dev",      "url":"https://news.ycombinator.com/user?id={}",       "found":[200], "not_found":[404],
+     "absent_text":"No such user"},
+    {"name":"GitLab",    "cat":"dev",      "url":"https://gitlab.com/{}",                         "found":[200], "not_found":[404]},
+]
+
+def _check_one_platform(plat: dict, username: str) -> dict:
+    url = plat["url"].format(username)
+    ua  = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+           "AppleWebKit/537.36 (KHTML, like Gecko) "
+           "Chrome/124.0.0.0 Safari/537.36")
+    try:
+        resp = requests.get(url, headers={"User-Agent": ua},
+                            timeout=7, allow_redirects=True)
+        code = resp.status_code
+
+        # Content-based false-positive filter
+        if code in plat.get("found", [200]) and "absent_text" in plat:
+            if plat["absent_text"] in resp.text:
+                return {"name": plat["name"], "cat": plat["cat"],
+                        "status": "not_found", "url": url}
+
+        if code in plat.get("found", [200]):
+            return {"name": plat["name"], "cat": plat["cat"],
+                    "status": "found", "url": url}
+        if code in plat.get("not_found", [404]):
+            return {"name": plat["name"], "cat": plat["cat"],
+                    "status": "not_found", "url": url}
+        return {"name": plat["name"], "cat": plat["cat"],
+                "status": "unknown", "url": url, "http": code}
+    except requests.Timeout:
+        return {"name": plat["name"], "cat": plat["cat"],
+                "status": "timeout", "url": url}
+    except Exception:
+        return {"name": plat["name"], "cat": plat["cat"],
+                "status": "error", "url": url}
+
+@app.route("/api/username/multicheck", methods=["POST"])
+def username_multicheck():
+    data = request.json or {}
+    username = data.get("username", "").strip().lstrip("@")
+    if not username or not re.match(r"^[\w.\-]{1,50}$", username):
+        return jsonify({"error": "Invalid username"}), 400
+
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        futures = {pool.submit(_check_one_platform, p, username): p
+                   for p in _PLATFORMS}
+        results = [f.result() for f in as_completed(futures)]
+
+    found     = [r for r in results if r["status"] == "found"]
+    not_found = [r for r in results if r["status"] == "not_found"]
+    unknown   = [r for r in results if r["status"] not in ("found", "not_found")]
+
+    return jsonify({
+        "username":   username,
+        "found":      sorted(found,     key=lambda x: x["name"]),
+        "not_found":  sorted(not_found, key=lambda x: x["name"]),
+        "unknown":    sorted(unknown,   key=lambda x: x["name"]),
+        "total":      len(_PLATFORMS),
+        "found_count":len(found),
+    })
 
 
 # ─────────────────────────────────────────────
