@@ -89,13 +89,13 @@ def username_maigret():
     try:
         result = subprocess.run(
             [MAIGRET_EXE, username,
-             "-J", "simple",          # JSON report (simple format)
+             "-J", "simple",
              "--no-progressbar",
-             "--timeout", "10",
+             "--timeout", "8",
              "--retries", "1",
-             "--top-sites", "500",    # limit to top 500 sites for speed
+             "--top-sites", "300",
              "--folderoutput", tmpdir],
-            capture_output=True, text=True, timeout=180
+            capture_output=True, text=True, timeout=90
         )
 
         raw_output = (result.stdout or "") + (result.stderr or "")
@@ -205,7 +205,7 @@ def email_holehe():
 
 
 # ─────────────────────────────────────────────
-# EMAIL — ghunt (simplified Google OSINT)
+# EMAIL — email OSINT (Disify + Gravatar)
 # ─────────────────────────────────────────────
 @app.route("/api/email/ghunt", methods=["POST"])
 def email_ghunt():
@@ -214,51 +214,55 @@ def email_ghunt():
     if not email or "@" not in email:
         return jsonify({"error": "Invalid email"}), 400
 
+    domain = email.split("@")[1]
     result = {
         "email":    email,
-        "domain":   email.split("@")[1],
-        "is_gmail": email.endswith("@gmail.com"),
+        "domain":   domain,
+        "is_gmail": domain in ("gmail.com", "googlemail.com"),
         "sources":  [],
     }
 
-    # Check Gmail existence via Google gxlu endpoint
+    # Disify — format, disposable, MX, DNS, whitelist, role, free provider
     try:
-        r = requests.get(
-            f"https://mail.google.com/mail/gxlu?email={email}",
-            headers=BROWSER_HEADERS, timeout=10, allow_redirects=False
+        dis = requests.get(
+            f"https://www.disify.com/api/email/{email}",
+            timeout=10
         )
-        result["gmail_exists"] = r.status_code == 200 or "set-cookie" in r.headers
-        result["sources"].append("google_gxlu")
-    except Exception:
-        result["gmail_exists"] = None
-
-    # Check Google Calendar public profile
-    if result["is_gmail"]:
-        try:
-            r2 = requests.get(
-                f"https://calendar.google.com/calendar/r/search?q={email}",
-                headers=BROWSER_HEADERS, timeout=8
-            )
-            result["calendar_accessible"] = r2.status_code == 200
-        except Exception:
-            pass
-
-    # Gravatar check
-    md5_hash = hashlib.md5(email.encode()).hexdigest()
-    gravatar_url = f"https://www.gravatar.com/avatar/{md5_hash}?d=404"
-    try:
-        gr = requests.get(gravatar_url, timeout=8)
-        result["gravatar"] = {
-            "exists": gr.status_code == 200,
-            "url":    f"https://www.gravatar.com/avatar/{md5_hash}",
-        }
-        result["sources"].append("gravatar")
+        if dis.status_code == 200:
+            d = dis.json()
+            result.update({
+                "format_valid":    d.get("format", False),
+                "disposable":      d.get("disposable", False),
+                "has_dns":         d.get("dns", False),
+                "whitelisted":     d.get("whitelist", False),
+                "is_role_email":   d.get("role", False),
+                "is_free_provider":d.get("free", False),
+                "mx_records":      d.get("mx_info", []),
+            })
+            result["sources"].append("disify")
     except Exception:
         pass
 
-    # Google search links
-    result["google_search"] = f'https://www.google.com/search?q="{email}"'
-    result["profile_url"]   = f"https://profiles.google.com/{email}"
+    # Gravatar
+    md5_hash = hashlib.md5(email.strip().lower().encode()).hexdigest()
+    try:
+        gr = requests.get(f"https://www.gravatar.com/avatar/{md5_hash}?d=404", timeout=8)
+        result["gravatar"] = {
+            "exists": gr.status_code == 200,
+            "url":    f"https://www.gravatar.com/avatar/{md5_hash}?s=200",
+        }
+        result["sources"].append("gravatar")
+    except Exception:
+        result["gravatar"] = {"exists": False, "url": None}
+
+    # Investigation links
+    result["links"] = {
+        "google_search":  f'https://www.google.com/search?q="{email}"',
+        "linkedin_search":f"https://www.linkedin.com/search/results/people/?keywords={email}",
+        "twitter_search": f"https://twitter.com/search?q={email}",
+        "gravatar_profile":f"https://en.gravatar.com/{md5_hash}",
+        "dehashed":       f"https://www.dehashed.com/search?query={email}",
+    }
 
     return jsonify(result)
 
@@ -315,25 +319,6 @@ def phone_lookup():
         if r.status_code == 200:
             result["ipinfo"] = r.json()
             result["sources"].append("ipinfo.io")
-    except Exception:
-        pass
-
-    # Numverify (free limited — no key needed for basic)
-    try:
-        nv = requests.get(
-            f"http://apilayer.net/api/validate?number={e164}&format=1",
-            timeout=8
-        )
-        if nv.status_code == 200:
-            nv_data = nv.json()
-            if nv_data.get("valid"):
-                result["numverify"] = {
-                    "line_type":   nv_data.get("line_type"),
-                    "location":    nv_data.get("location"),
-                    "carrier":     nv_data.get("carrier"),
-                    "country_name": nv_data.get("country_name"),
-                }
-                result["sources"].append("numverify")
     except Exception:
         pass
 
@@ -636,26 +621,35 @@ def hibp_email():
     }
     result = {"email": email, "breaches": [], "pastes": [], "breached": False}
 
-    try:
-        r = requests.get(
-            f"https://haveibeenpwned.com/api/v3/breachedaccount/{email}?truncateResponse=false",
-            headers=headers, timeout=15
-        )
-        if r.status_code == 200:
-            result["breaches"] = r.json()
-            result["breached"] = True
-            result["total_breaches"] = len(result["breaches"])
-        elif r.status_code == 404:
-            result["breached"] = False
-            result["total_breaches"] = 0
-        elif r.status_code == 429:
-            time.sleep(1.5)
-            return hibp_email()
-        else:
-            result["breach_error"] = f"HTTP {r.status_code}"
-    except Exception as exc:
-        result["breach_error"] = str(exc)
+    # Breach check with exponential backoff (max 3 retries)
+    for attempt in range(3):
+        try:
+            r = requests.get(
+                f"https://haveibeenpwned.com/api/v3/breachedaccount/{email}?truncateResponse=false",
+                headers=headers, timeout=15
+            )
+            if r.status_code == 200:
+                result["breaches"] = r.json()
+                result["breached"] = True
+                result["total_breaches"] = len(result["breaches"])
+                break
+            elif r.status_code == 404:
+                result["breached"] = False
+                result["total_breaches"] = 0
+                break
+            elif r.status_code == 429:
+                if attempt < 2:
+                    time.sleep(1.5 * (2 ** attempt))   # 1.5s → 3s → give up
+                else:
+                    result["breach_error"] = "Rate limited by HIBP — coba beberapa detik lagi"
+            else:
+                result["breach_error"] = f"HTTP {r.status_code}"
+                break
+        except Exception as exc:
+            result["breach_error"] = str(exc)
+            break
 
+    # Paste check (best-effort, single attempt)
     try:
         r2 = requests.get(
             f"https://haveibeenpwned.com/api/v3/pasteaccount/{email}",

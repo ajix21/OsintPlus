@@ -430,7 +430,7 @@ body::before{
     <i class="fas fa-envelope-open-text"></i> holehe
   </a>
   <a class="nav-item" onclick="show('email-ghunt')" href="#">
-    <i class="fab fa-google"></i> ghunt
+    <i class="fas fa-at"></i> email osint
   </a>
 
   <div class="nav-section">Phone</div>
@@ -522,15 +522,16 @@ body::before{
       <!-- ghunt -->
       <div class="panel" id="panel-email-ghunt">
         <div class="tool-header">
-          <div class="tool-name"><i class="fab fa-google"></i> GHUNT</div>
-          <div class="tool-desc">Google account OSINT — Gmail existence, Gravatar, public profile data.</div>
+          <div class="tool-name"><i class="fas fa-at"></i> EMAIL OSINT</div>
+          <div class="tool-desc">Email intelligence — validasi format, disposable check, MX records, Gravatar, dan investigation links.</div>
+          <div class="tool-source">Source: disify.com · gravatar.com</div>
         </div>
         <div class="field">
-          <label>Gmail / Google Email</label>
-          <input id="ghunt-email" type="email" placeholder="target@gmail.com">
+          <label>Email Address</label>
+          <input id="ghunt-email" type="email" placeholder="target@example.com">
         </div>
         <button class="btn" onclick="runGhunt()" id="btn-ghunt">
-          <i class="fab fa-google"></i> INVESTIGATE
+          <i class="fas fa-search"></i> INVESTIGATE
         </button>
       </div>
 
@@ -825,37 +826,73 @@ async function runGhunt() {
   const email = document.getElementById('ghunt-email').value.trim();
   if (!email) return;
   setBtnLoading('btn-ghunt', true);
-  setLoading('INVESTIGATING GOOGLE ACCOUNT...');
+  setLoading('INVESTIGATING EMAIL...');
   const data = await post('/api/email/ghunt', {email});
   setBtnLoading('btn-ghunt', false);
 
   if (data.error) { setResult(alert_(data.error,'err')); return; }
 
+  const disposable = data.disposable;
+  const hasDns     = data.has_dns;
+  const whitelisted= data.whitelisted;
+
+  // Summary badges
+  const statusBadge = disposable
+    ? badge('DISPOSABLE','pwned')
+    : hasDns
+      ? badge('VALID DOMAIN','found')
+      : badge('NO DNS','warn');
+
   let html = `<div class="card">
     <div class="card-header">
-      <span class="card-icon" style="color:#4285f4;"><i class="fab fa-google"></i></span>
-      <span class="card-title">Google Account OSINT</span>
-      ${data.gmail_exists === true ? badge('ACCOUNT EXISTS','found') : data.gmail_exists === false ? badge('NOT FOUND','warn') : badge('UNKNOWN','info')}
+      <span class="card-icon" style="color:var(--teal);"><i class="fas fa-at"></i></span>
+      <span class="card-title">${data.email}</span>
+      ${statusBadge}
+      ${data.is_gmail ? badge('GMAIL','info') : ''}
     </div>
     <div class="card-body">
-      ${kv('Email', data.email)}
-      ${kv('Domain', data.domain)}
-      ${kv('Is Gmail', data.is_gmail ? '✓ Yes' : '✗ No', data.is_gmail ? 'green':'dim')}
-      ${kv('Gmail Exists', data.gmail_exists === true ? '✓ Yes' : data.gmail_exists === false ? '✗ No' : '? Unknown', data.gmail_exists ? 'green':'dim')}
-      ${data.gravatar ? kv('Gravatar', data.gravatar.exists ? `<a href="${data.gravatar.url}" target="_blank" class="link">✓ Found — View</a>` : '✗ Not found') : ''}
-      ${kv('Checked Sources', (data.sources||[]).join(', '),'dim')}
+      ${kv('Email',           data.email)}
+      ${kv('Domain',          data.domain)}
+      ${kv('Format Valid',    data.format_valid   ? '✓ Yes' : '✗ No',    data.format_valid   ? 'green':'red')}
+      ${kv('Has DNS',         data.has_dns        ? '✓ Yes' : '✗ No',    data.has_dns        ? 'green':'dim')}
+      ${kv('Disposable',      data.disposable     ? '⚠ Yes' : '✓ No',    data.disposable     ? 'pink' :'green')}
+      ${kv('Whitelisted',     data.whitelisted    ? '✓ Yes' : '✗ No',    data.whitelisted    ? 'green':'dim')}
+      ${kv('Role Email',      data.is_role_email  ? '⚠ Yes' : '✓ No',    data.is_role_email  ? 'orange':'dim')}
+      ${kv('Free Provider',   data.is_free_provider ? '✓ Yes' : '✗ No',  data.is_free_provider ? 'cyan':'dim')}
+      ${kv('Gravatar',        data.gravatar?.exists
+          ? `<a href="${data.gravatar.url}" target="_blank" class="link">✓ Found — View Avatar</a>`
+          : '✗ Not found')}
+      ${kv('Sources', (data.sources||[]).join(', '), 'dim')}
     </div>
-  </div>
-  <div class="card">
+  </div>`;
+
+  if ((data.mx_records||[]).length) {
+    html += `<div class="card">
+      <div class="card-header">
+        <span class="card-icon" style="color:var(--amber);"><i class="fas fa-server"></i></span>
+        <span class="card-title">MX Records (${data.mx_records.length})</span>
+      </div>
+      <div class="card-body">
+        ${data.mx_records.map(mx => `<div class="kv"><span class="kv-key">MX</span><span class="kv-val cyan">${mx}</span></div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  const lk = data.links || {};
+  html += `<div class="card">
     <div class="card-header">
-      <span class="card-icon" style="color:var(--cyan);"><i class="fas fa-link"></i></span>
+      <span class="card-icon" style="color:var(--blue);"><i class="fas fa-search"></i></span>
       <span class="card-title">Investigation Links</span>
     </div>
     <div class="card-body">
-      ${kv('Google Search', `<a href="${data.google_search}" target="_blank" class="link">Open Search</a>`)}
-      ${data.profile_url ? kv('Profile URL', `<a href="${data.profile_url}" target="_blank" class="link">View Profile</a>`) : ''}
+      ${lk.google_search   ? kv('Google Search',  `<a href="${lk.google_search}"   target="_blank" class="link">Open</a>`) : ''}
+      ${lk.linkedin_search ? kv('LinkedIn',        `<a href="${lk.linkedin_search}" target="_blank" class="link">Search</a>`) : ''}
+      ${lk.twitter_search  ? kv('Twitter/X',       `<a href="${lk.twitter_search}"  target="_blank" class="link">Search</a>`) : ''}
+      ${lk.dehashed        ? kv('Dehashed',         `<a href="${lk.dehashed}"        target="_blank" class="link">Search Leaks</a>`) : ''}
+      ${lk.gravatar_profile? kv('Gravatar Profile', `<a href="${lk.gravatar_profile}"target="_blank" class="link">View</a>`) : ''}
     </div>
   </div>`;
+
   setResult(html);
 }
 
