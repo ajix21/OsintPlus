@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OSINT Plus</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:        #0a0c10;
+  --bg2:       #0f1318;
+  --bg3:       #141920;
+  --border:    #1e2840;
+  --border2:   #253050;
+  --amber:     #e8a225;
+  --teal:      #1fc9a0;
+  --red:       #e24b4a;
+  --blue:      #5590cc;
+  /* legacy aliases kept for JS template strings */
+  --green:     #e8a225;
+  --cyan:      #1fc9a0;
+  --pink:      #e24b4a;
+  --orange:    #e8a225;
+  --yellow:    #f0b030;
+  --purple:    #5590cc;
+  --text:      #d4cfc4;
+  --text-dim:  #6b7480;
+  --card:      #141920;
+  --card-hov:  rgba(232,162,37,0.07);
+  --shadow:    0 0 24px rgba(232,162,37,0.05);
+  --radius:    4px;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Space Mono',monospace;overflow:hidden;}
+
+/* scanline overlay */
+body::after{
+  content:'';position:fixed;inset:0;
+  background:repeating-linear-gradient(to bottom,transparent 0,transparent 3px,rgba(0,0,0,0.025) 3px,rgba(0,0,0,0.025) 4px);
+  pointer-events:none;z-index:9999;
+}
+
+/* subtle grid */
+body::before{
+  content:'';position:fixed;inset:0;
+  background-image:linear-gradient(rgba(255,255,255,0.012) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.012) 1px,transparent 1px);
+  background-size:40px 40px;pointer-events:none;z-index:0;
+}
+
+/* scrollbar */
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-track{background:var(--bg);}
+::-webkit-scrollbar-thumb{background:rgba(232,162,37,0.25);border-radius:2px;}
+
+/* ── LAYOUT ── */
+.shell{display:flex;height:100vh;position:relative;z-index:1;}
+.sidebar{width:220px;flex-shrink:0;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.topbar{height:44px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:12px;flex-shrink:0;}
+.content{flex:1;display:flex;overflow:hidden;}
+.form-col{width:360px;flex-shrink:0;border-right:1px solid var(--border);overflow-y:auto;padding:20px;}
+.result-col{flex:1;overflow-y:auto;padding:20px;}
+
+/* ── SIDEBAR ── */
+.logo{padding:18px 16px 14px;display:flex;flex-direction:column;gap:6px;}
+.logo-mark{width:26px;height:26px;background:var(--amber);clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%);flex-shrink:0;}
+.logo-text{font-family:'Syne',sans-serif;font-size:17px;font-weight:800;letter-spacing:2px;color:var(--amber);}
+.logo-sub{color:var(--text-dim);font-size:9px;letter-spacing:2px;}
+
+.nav-section{
+  padding:10px 16px 4px;font-size:9px;letter-spacing:2px;color:var(--text-dim);text-transform:uppercase;
+  display:flex;align-items:center;gap:8px;
+}
+.nav-section::after{content:'';flex:1;height:1px;background:rgba(232,162,37,0.15);}
+
+.nav-item{display:flex;align-items:center;gap:10px;padding:8px 16px;font-size:11px;cursor:pointer;border-left:2px solid transparent;transition:all .15s;color:var(--text-dim);text-decoration:none;}
+.nav-item:hover{background:rgba(255,255,255,0.025);color:var(--text);border-left-color:var(--border2);}
+.nav-item.active{background:rgba(232,162,37,0.07);color:var(--amber);border-left-color:var(--amber);}
+.nav-item i{width:14px;text-align:center;font-size:12px;}
+.badge{margin-left:auto;font-size:8px;background:rgba(232,162,37,0.10);border:1px solid rgba(232,162,37,0.25);color:var(--amber);padding:1px 5px;border-radius:2px;}
+
+/* ── TOPBAR ── */
+.logo-top{display:flex;align-items:center;gap:8px;}
+.logo-top-mark{width:15px;height:15px;background:var(--amber);clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%);flex-shrink:0;}
+.logo-top-text{font-family:'Syne',sans-serif;font-size:13px;font-weight:800;letter-spacing:2px;color:var(--amber);}
+.sep{color:var(--border2);}
+.tool-title{font-size:11px;color:var(--text-dim);}
+.status-dot{width:7px;height:7px;border-radius:50%;animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:.5;}50%{opacity:1;}}
+.clock{margin-left:auto;font-size:10px;color:var(--text-dim);}
+.theme-indicator{font-size:9px;color:var(--text-dim);border:1px solid var(--border);padding:2px 8px;}
+
+/* ── FORM ── */
+.tool-header{margin-bottom:16px;}
+.tool-name{font-size:13px;letter-spacing:2px;color:var(--amber);margin-bottom:4px;font-family:'Syne',sans-serif;font-weight:700;}
+.tool-desc{font-size:10px;color:var(--text-dim);line-height:1.5;}
+.tool-source{font-size:9px;margin-top:4px;color:var(--teal);}
+
+.field{margin-bottom:14px;}
+.field label{display:block;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-bottom:5px;}
+.field input,.field textarea,.field select{
+  width:100%;background:rgba(255,255,255,0.03);border:1px solid var(--border);
+  color:var(--text);padding:9px 12px;font-family:'Space Mono',monospace;
+  font-size:11px;outline:none;border-radius:var(--radius);
+  transition:border-color .15s;
+}
+.field input:focus,.field textarea:focus,.field select:focus{border-color:rgba(232,162,37,0.5);box-shadow:0 0 8px rgba(232,162,37,0.07);}
+.field input::placeholder,.field textarea::placeholder{color:var(--text-dim);}
+.field textarea{resize:vertical;min-height:70px;}
+.field select{cursor:pointer;}
+.field-hint{font-size:9px;color:var(--text-dim);margin-top:4px;line-height:1.5;}
+
+/* Primary button — solid amber */
+.btn{
+  width:100%;padding:10px;background:var(--amber);border:1px solid var(--amber);color:#0a0c10;
+  font-family:'Space Mono',monospace;font-size:11px;letter-spacing:1px;text-transform:uppercase;font-weight:700;
+  cursor:pointer;border-radius:var(--radius);transition:all .15s;display:flex;align-items:center;justify-content:center;gap:8px;
+}
+.btn:hover{background:#f0b030;border-color:#f0b030;}
+.btn:disabled{opacity:.4;cursor:not-allowed;}
+.btn.pink{background:transparent;border:1px solid var(--red);color:var(--red);}
+.btn.pink:hover{background:rgba(226,75,74,0.08);}
+.btn.orange{background:transparent;border:1px solid var(--amber);color:var(--amber);}
+.btn.orange:hover{background:rgba(232,162,37,0.08);}
+.btn-group{display:flex;gap:8px;}
+.btn-group .btn{flex:1;}
+
+.separator{border:none;border-top:1px solid var(--border);margin:16px 0;}
+
+/* ── RESULTS ── */
+.result-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+.result-title{font-size:12px;letter-spacing:2px;color:var(--text-dim);}
+.result-count{font-size:9px;border:1px solid var(--border);padding:2px 8px;color:var(--amber);}
+
+.placeholder{text-align:center;padding:60px 20px;color:var(--text-dim);}
+.placeholder i{font-size:40px;margin-bottom:16px;opacity:.2;}
+.placeholder p{font-size:11px;line-height:1.7;}
+
+.spinner{display:flex;flex-direction:column;align-items:center;padding:60px 20px;gap:14px;color:var(--text-dim);}
+.spinner i{font-size:28px;color:var(--amber);animation:spin 1s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.spinner p{font-size:10px;letter-spacing:1px;}
+
+/* result cards */
+.card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;overflow:hidden;}
+.card-header{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);background:var(--bg2);}
+.card-icon{font-size:14px;width:18px;text-align:center;}
+.card-title{font-size:11px;flex:1;}
+.card-badge{font-size:8px;padding:2px 7px;border-radius:2px;font-weight:bold;letter-spacing:.5px;}
+.badge-found  {background:rgba(31,201,160,0.12); color:var(--teal); border:1px solid rgba(31,201,160,.3);}
+.badge-pwned  {background:rgba(226,75,74,0.12);  color:var(--red);  border:1px solid rgba(226,75,74,.3);}
+.badge-safe   {background:rgba(31,201,160,0.10); color:var(--teal); border:1px solid rgba(31,201,160,.25);}
+.badge-warn   {background:rgba(232,162,37,0.12); color:var(--amber);border:1px solid rgba(232,162,37,.3);}
+.badge-info   {background:rgba(85,144,204,0.12); color:var(--blue); border:1px solid rgba(85,144,204,.3);}
+.card-body{padding:12px 14px;}
+.kv{display:flex;justify-content:space-between;align-items:flex-start;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:10px;gap:12px;}
+.kv:last-child{border-bottom:none;}
+.kv-key{color:var(--text-dim);flex-shrink:0;min-width:130px;}
+.kv-val{color:var(--text);text-align:right;word-break:break-all;}
+.kv-val.green{color:var(--amber);}
+.kv-val.pink{color:var(--red);}
+.kv-val.orange{color:var(--amber);}
+.kv-val.cyan{color:var(--teal);}
+.kv-val.dim{color:var(--text-dim);}
+
+.tag-list{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;}
+.tag{font-size:9px;padding:2px 8px;border:1px solid var(--border);border-radius:2px;color:var(--text-dim);}
+.tag.green{border-color:rgba(232,162,37,.35);color:var(--amber);}
+.tag.pink{border-color:rgba(226,75,74,.35);color:var(--red);}
+.tag.cyan{border-color:rgba(31,201,160,.3);color:var(--teal);}
+.tag.orange{border-color:rgba(232,162,37,.3);color:var(--amber);}
+
+.link{color:var(--teal);text-decoration:none;font-size:10px;word-break:break-all;}
+.link:hover{text-decoration:underline;}
+
+.summary-bar{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;}
+.summary-stat{background:var(--bg3);border:1px solid var(--border);padding:8px 14px;border-radius:var(--radius);text-align:center;flex:1;min-width:80px;}
+.summary-stat .n{font-size:20px;font-weight:700;color:var(--amber);}
+.summary-stat .n.pink{color:var(--red);}
+.summary-stat .n.orange{color:var(--amber);}
+.summary-stat .l{font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-top:2px;}
+
+.found-list{display:flex;flex-direction:column;gap:6px;}
+.found-item{display:flex;align-items:center;gap:10px;padding:8px 12px;background:rgba(232,162,37,0.04);border:1px solid rgba(232,162,37,0.12);border-radius:4px;}
+.found-item .site{flex:1;font-size:11px;color:var(--amber);}
+.found-item .cat{font-size:9px;color:var(--text-dim);}
+.found-item a{color:var(--teal);font-size:10px;}
+
+.breach-item{padding:10px 14px;border-left:3px solid var(--red);background:rgba(226,75,74,0.04);margin-bottom:8px;border-radius:0 4px 4px 0;}
+.breach-name{font-size:12px;color:var(--red);margin-bottom:4px;}
+.breach-meta{font-size:10px;color:var(--text-dim);margin-bottom:6px;}
+.breach-classes{display:flex;flex-wrap:wrap;gap:4px;}
+
+.password-result{text-align:center;padding:30px 20px;}
+.password-result .big-icon{font-size:48px;margin-bottom:12px;}
+.password-result .verdict{font-size:16px;letter-spacing:2px;margin-bottom:8px;}
+.password-result .details{font-size:11px;color:var(--text-dim);line-height:1.7;}
+
+.platform-row{display:flex;align-items:flex-start;gap:12px;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,0.04);}
+.platform-row:last-child{border-bottom:none;}
+.platform-icon{font-size:18px;width:24px;text-align:center;margin-top:2px;}
+.platform-info{flex:1;}
+.platform-name{font-size:11px;color:var(--text);margin-bottom:3px;}
+.platform-detail{font-size:10px;color:var(--text-dim);line-height:1.5;}
+
+.raw-output{background:rgba(0,0,0,0.4);border:1px solid var(--border);padding:12px;font-size:9px;color:var(--text-dim);white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;border-radius:4px;margin-top:10px;}
+
+.alert{padding:10px 14px;border-radius:4px;font-size:10px;margin-bottom:12px;display:flex;gap:10px;align-items:flex-start;}
+.alert i{margin-top:1px;}
+.alert.warn{background:rgba(232,162,37,0.07);border:1px solid rgba(232,162,37,.25);color:var(--amber);}
+.alert.err{background:rgba(226,75,74,0.07);border:1px solid rgba(226,75,74,.25);color:var(--red);}
+.alert.info{background:rgba(85,144,204,0.06);border:1px solid rgba(85,144,204,.2);color:var(--blue);}
+.alert.ok{background:rgba(31,201,160,0.06);border:1px solid rgba(31,201,160,.2);color:var(--teal);}
+
+/* tool panels */
+.panel{display:none;}
+.panel.active{display:block;}
+
+/* status pills in sidebar */
+.tool-status{width:6px;height:6px;border-radius:50%;margin-left:auto;}
+.tool-status.ok{background:var(--teal);box-shadow:0 0 4px var(--teal);}
+.tool-status.miss{background:rgba(232,162,37,.8);}
+
+@media(max-width:800px){
+  .sidebar{width:180px;}
+  .form-col{width:100%;border-right:none;}
+  .content{flex-direction:column;}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<!-- ─── SIDEBAR ─── -->
+<nav class="sidebar">
+  <div class="logo">
+    <div class="logo-mark"></div>
+    <div class="logo-text">OSINT+</div>
+    <div class="logo-sub">INTELLIGENCE SUITE</div>
+  </div>
+
+  <div class="nav-section">Username</div>
+  <a class="nav-item active" onclick="show('username-maigret')" href="#">
+    <i class="fas fa-user-astronaut"></i> maigret
+    <span class="badge">2500+ sites</span>
+  </a>
+
+  <div class="nav-section">Email</div>
+  <a class="nav-item" onclick="show('email-holehe')" href="#">
+    <i class="fas fa-envelope-open-text"></i> holehe
+  </a>
+  <a class="nav-item" onclick="show('email-ghunt')" href="#">
+    <i class="fab fa-google"></i> ghunt
+  </a>
+
+  <div class="nav-section">Phone</div>
+  <a class="nav-item" onclick="show('phone-ipinfo')" href="#">
+    <i class="fas fa-mobile-alt"></i> ipinfo
+  </a>
+
+  <div class="nav-section">Domain</div>
+  <a class="nav-item" onclick="show('domain-whois')" href="#">
+    <i class="fas fa-globe"></i> whois
+  </a>
+
+  <div class="nav-section">Instagram</div>
+  <a class="nav-item" onclick="show('ig-info')" href="#">
+    <i class="fab fa-instagram"></i> iginfo
+  </a>
+  <a class="nav-item" onclick="show('ig-toutatis')" href="#">
+    <i class="fas fa-spider"></i> toutatis
+    <span class="badge">deep</span>
+  </a>
+
+  <div class="nav-section">Security</div>
+  <a class="nav-item" onclick="show('hibp-email')" href="#">
+    <i class="fas fa-database"></i> HIBP — Email
+  </a>
+  <a class="nav-item" onclick="show('hibp-password')" href="#">
+    <i class="fas fa-key"></i> HIBP — Password
+  </a>
+
+  <div class="nav-section">Messenger</div>
+  <a class="nav-item" onclick="show('messenger-telcek')" href="#">
+    <i class="fas fa-comments"></i> telcek
+  </a>
+
+  <div style="margin-top:auto;padding:12px 16px;border-top:1px solid var(--border);">
+    <a class="nav-item" onclick="show('status')" href="#" style="padding:6px 0;">
+      <i class="fas fa-heartbeat"></i> Tool Status
+    </a>
+  </div>
+</nav>
+
+<!-- ─── MAIN ─── -->
+<div class="main">
+  <div class="topbar">
+    <span class="logo-top"><span class="logo-top-mark"></span><span class="logo-top-text">OSINT+</span></span>
+    <span class="sep">//</span>
+    <span class="tool-title" id="active-title">USERNAME — maigret</span>
+    <span style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+      <span class="status-dot" style="background:var(--teal);box-shadow:0 0 6px var(--teal);"></span>
+      <span style="font-size:9px;color:var(--text-dim);">ONLINE</span>
+      <span class="clock" id="clock"></span>
+    </span>
+  </div>
+
+  <div class="content">
+    <!-- ─── FORM COLUMN ─── -->
+    <div class="form-col">
+
+      <!-- maigret -->
+      <div class="panel active" id="panel-username-maigret">
+        <div class="tool-header">
+          <div class="tool-name"><i class="fas fa-user-astronaut"></i> MAIGRET</div>
+          <div class="tool-desc">Search username across 2,500+ websites and social networks.</div>
+          <div class="tool-source">Source: maigret · pip install maigret</div>
+        </div>
+        <div class="field">
+          <label>Target Username</label>
+          <input id="maigret-username" placeholder="johndoe" onkeydown="if(e.key==='Enter')runMaigret()">
+        </div>
+        <button class="btn" onclick="runMaigret()" id="btn-maigret">
+          <i class="fas fa-search"></i> HUNT USERNAME
+        </button>
+      </div>
+
+      <!-- holehe -->
+      <div class="panel" id="panel-email-holehe">
+        <div class="tool-header">
+          <div class="tool-name"><i class="fas fa-envelope-open-text"></i> HOLEHE</div>
+          <div class="tool-desc">Check which services have an account linked to an email address.</div>
+          <div class="tool-source">Source: holehe · pip install holehe</div>
+        </div>
+        <div class="field">
+          <label>Target Email</label>
+          <input id="holehe-email" type="email" placeholder="target@email.com">
+        </div>
+        <button class="btn" onclick="runHolehe()" id="btn-holehe">
+          <i class="fas fa-search"></i> CHECK EMAIL
+        </button>
+      </div>
+
+      <!-- ghunt -->
+      <div class="panel" id="panel-email-ghunt">
+        <div class="tool-header">
+          <div class="tool-name"><i class="fab fa-google"></i> GHUNT</div>
+          <div class="tool-desc">Google account OSINT — Gmail existence, Gravatar, public profile data.</div>
+          <div class="tool-source">Source: ghunt (simplified) · Google OSINT</div>
+        </div>
+        <div class="field">
+          <label>Gmail / Google Email</label>
+          <input id="ghunt-email" type="email" placeholder="target@gmail.com">
+        </div>
+        <button class="btn" onclick="runGhunt()" id="btn-ghunt">
+          <i class="fab fa-google"></i> INVESTIGATE
+        </button>
+      </div>
+
+      <!-- ipinfo -->
+      <div class="panel" id="panel-phone-ipinfo">
+        <div class="tool-header">
+          <div class="tool-name"><i class="fas fa-mobile-alt"></i> IPINFO — PHONE</div>
+          <div class="tool-desc">Phone number lookup: country, carrier, line type, timezone.</div>
+          <div class="tool-source">Source: phonenumbers · ipinfo.io</div>
+        </div>
+        <div class="field">
+          <label>Phone Number (with country code)</label>
+          <input id="phone-number" placeholder="+62 812 3456 7890">
+          <div class="field-hint">Include + and country code: +62 for ID, +1 for US, +44 for UK</div>
+        </div>
+        <button class="btn" onclick="runPhone()" id="btn-phone">
+          <i class="fas fa-satellite-dish"></i> LOOKUP
+        </button>
+      </div>
+
+      <!-- whois -->
+      <div class="panel" id="panel-domain-whois">
+        <div class="tool-header">
+          <div class="tool-name"><i class="fas fa-globe"></i> WHOIS</div>
+          <div class="tool-desc">Domain registration, DNS, IP, SSL certificate analysis.</div>
+          <div class="tool-source">Source: python-whois · ipinfo.io · SSL</div>
+        </div>
+        <div class="field">
+          <label>Domain or URL</label>
+          <input id="domain-input" placeholder="example.com">
+        </div>
+        <button class="btn" onclick="runWhois()" id="btn-whois">
+          <i class="fas fa-search"></i> QUERY DOMAIN
+        </button>
+      </div>
+
+      <!-- iginfo -->
+      <div class="panel" id="panel-ig-info">
+        <div class="tool-header">
+          <div class="tool-name"><i class="fab fa-instagram"></i> IGINFO</div>
+          <div class="tool-desc">Instagram public profile OSINT — followers, posts, bio, user ID.</div>
+          <div class="tool-source">Source: instaloader · pip install instaloader</div>
+        </div>
+        <div class="field">
+          <label>Instagram Username</label>
+          <input id="ig-username" placeholder="username (without @)">
+        </div>
+        <button class="btn" onclick="runIgInfo()" id="btn-iginfo">
+          <i class="fab fa-instagram"></i> SCAN PROFILE
+        </button>
+      </div>
+
+      <!-- toutatis -->
+      <div class="panel" id="panel-ig-toutatis">
+        <div class="tool-header">
+          <div class="tool-name"><i class="fas fa-spider"></i> TOUTATIS</div>
+          <div class="tool-desc">Deep Instagram OSINT — phone number, email, exact location from business accounts.</div>
+          <div class="tool-source">Source: toutatis · pip install toutatis</div>
+        </div>
+        <div class="alert warn"><i class="fas fa-exclamation-triangle"></i> Requires Instagram Session ID (sessionid cookie)</div>
+        <div class="field">
+          <label>Instagram Username</label>
+          <input id="tout-username" placeholder="username (without @)">
+        </div>
+        <div class="field">
+          <label>Session ID (sessionid cookie)</label>
+          <input id="tout-session" placeholder="paste your Instagram sessionid here">
+          <div class="field-hint">Browser DevTools → Application → Cookies → instagram.com → sessionid</div>
+        </div>
+        <button class="btn" onclick="runToutatis()" id="btn-toutatis">
+          <i class="fas fa-spider"></i> DEEP SCAN
+        </button>
+      </div>
+
+      <!-- hibp email -->
+      <div class="panel" id="panel-hibp-email">
+        <div class="tool-header">
+          <div class="tool-name"><i class="fas fa-database"></i> HIBP — EMAIL</div>
+          <div class="tool-desc">Check if email was exposed in data breaches and paste sites.</div>
+          <div class="tool-source">Source: haveibeenpwned.com/api/v3 — Requires API key</div>
+        </div>
+        <div class="field">
+          <label>Email Address</label>
+          <input id="hibp-email-input" type="email" placeholder="target@email.com">
+        </div>
+        <button class="btn pink" onclick="runHibpEmail()" id="btn-hibp-email">
+          <i class="fas fa-shield-alt"></i> CHECK BREACHES
+        </button>
+        <div class="field-hint" style="margin-top:8px;">API key required — set HIBP_API_KEY in .env</div>
+      </div>
+
+      <!-- hibp password -->
+      <div class="panel" id="panel-hibp-password">
+        <div class="tool-header">
+          <div class="tool-name"><i class="fas fa-key"></i> HIBP — PASSWORD</div>
+          <div class="tool-desc">Check if a password was exposed in known data breaches using k-anonymity (no key needed).</div>
+          <div class="tool-source">Source: api.pwnedpasswords.com — No API key needed</div>
+        </div>
+        <div class="alert info"><i class="fas fa-lock"></i> Password is hashed locally. Only first 5 chars of SHA-1 are sent.</div>
+        <div class="field">
+          <label>Password to Check</label>
+          <input id="hibp-password-input" type="password" placeholder="enter password to check">
+        </div>
+        <button class="btn pink" onclick="runHibpPassword()" id="btn-hibp-pwd">
+          <i class="fas fa-search"></i> CHECK PASSWORD
+        </button>
+      </div>
+
+      <!-- telcek -->
+      <div class="panel" id="panel-messenger-telcek">
+        <div class="tool-header">
+          <div class="tool-name"><i class="fas fa-comments"></i> TELCEK</div>
+          <div class="tool-desc">Check phone number registration on Telegram, WhatsApp, Viber, and other messengers.</div>
+          <div class="tool-source">Source: phonenumbers · wa.me · Telegram deep links</div>
+        </div>
+        <div class="field">
+          <label>Phone Number (with country code)</label>
+          <input id="telcek-number" placeholder="+62 812 3456 7890">
+        </div>
+        <button class="btn" onclick="runTelcek()" id="btn-telcek">
+          <i class="fas fa-satellite-dish"></i> CHECK MESSENGERS
+        </button>
+      </div>
+
+      <!-- status -->
+      <div class="panel" id="panel-status">
+        <div class="tool-header">
+          <div class="tool-name"><i class="fas fa-heartbeat"></i> TOOL STATUS</div>
+          <div class="tool-desc">Check which OSINT tools are installed and configured.</div>
+        </div>
+        <button class="btn" onclick="loadStatus()"><i class="fas fa-sync"></i> REFRESH STATUS</button>
+        <div id="status-result" style="margin-top:16px;"></div>
+      </div>
+
+    </div><!-- /form-col -->
+
+    <!-- ─── RESULTS COLUMN ─── -->
+    <div class="result-col" id="result-col">
+      <div class="placeholder" id="result-placeholder">
+        <i class="fas fa-crosshairs"></i>
+        <p>Select a tool from the sidebar<br>and enter a target to begin.</p>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+</div><!-- /shell -->
+
+<script>
+// ─── CLOCK ───
+function tick() {
+  document.getElementById('clock').textContent =
+    new Date().toUTCString().slice(17,25) + ' UTC';
+}
+setInterval(tick, 1000); tick();
+
+// ─── NAVIGATION ───
+const TITLES = {
+  'username-maigret':   'USERNAME — maigret',
+  'email-holehe':       'EMAIL — holehe',
+  'email-ghunt':        'EMAIL — ghunt',
+  'phone-ipinfo':       'PHONE — ipinfo',
+  'domain-whois':       'DOMAIN — whois',
+  'ig-info':            'INSTAGRAM — iginfo',
+  'ig-toutatis':        'INSTAGRAM — toutatis',
+  'hibp-email':         'SECURITY — HIBP Email',
+  'hibp-password':      'SECURITY — HIBP Password',
+  'messenger-telcek':   'MESSENGER — telcek',
+  'status':             'TOOL STATUS',
+};
+
+function show(id) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const panel = document.getElementById('panel-' + id);
+  if (panel) panel.classList.add('active');
+  event.currentTarget.classList.add('active');
+  document.getElementById('active-title').textContent = TITLES[id] || id;
+  setResult('<div class="placeholder"><i class="fas fa-crosshairs"></i><p>Enter target and click the scan button.</p></div>');
+  if (id === 'status') loadStatus();
+}
+
+function setResult(html) {
+  document.getElementById('result-col').innerHTML = html;
+}
+
+function setLoading(msg = 'SCANNING...') {
+  setResult(`<div class="spinner"><i class="fas fa-spinner"></i><p>${msg}</p></div>`);
+}
+
+function setBtnLoading(btnId, loading) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  btn.disabled = loading;
+  if (loading) btn.dataset.orig = btn.innerHTML, btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> SCANNING...';
+  else btn.innerHTML = btn.dataset.orig || btn.innerHTML;
+}
+
+async function post(url, body) {
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  });
+  return r.json();
+}
+
+// ─── HELPERS ───
+function kv(key, val, cls = '') {
+  if (val === null || val === undefined || val === '') return '';
+  return `<div class="kv"><span class="kv-key">${key}</span><span class="kv-val ${cls}">${val}</span></div>`;
+}
+
+function badge(text, type = 'info') {
+  return `<span class="card-badge badge-${type}">${text}</span>`;
+}
+
+function alert_(msg, type = 'info') {
+  const icons = {info:'info-circle', warn:'exclamation-triangle', err:'times-circle', ok:'check-circle'};
+  return `<div class="alert ${type}"><i class="fas fa-${icons[type]||'info-circle'}"></i> ${msg}</div>`;
+}
+
+function safeval(v) {
+  if (Array.isArray(v)) return v.join(', ') || '—';
+  return v || '—';
+}
+
+// ─── MAIGRET ───
+async function runMaigret() {
+  const username = document.getElementById('maigret-username').value.trim();
+  if (!username) return;
+  setBtnLoading('btn-maigret', true);
+  setLoading('HUNTING USERNAME ACROSS 2,500+ SITES...');
+  const data = await post('/api/username/maigret', {username});
+  setBtnLoading('btn-maigret', false);
+
+  if (data.error) { setResult(alert_(data.error, 'err')); return; }
+
+  const found = data.found || [];
+  const cats = {};
+  found.forEach(f => { cats[f.category || 'other'] = (cats[f.category||'other']||0) + 1; });
+
+  let html = `<div class="summary-bar">
+    <div class="summary-stat"><div class="n">${found.length}</div><div class="l">Found</div></div>
+    ${Object.entries(cats).map(([c,n]) => `<div class="summary-stat"><div class="n" style="font-size:16px;">${n}</div><div class="l">${c}</div></div>`).join('')}
+  </div>`;
+
+  if (!found.length) {
+    html += alert_('No accounts found for this username.', 'info');
+  } else {
+    html += `<div class="found-list">` + found.map(f => `
+      <div class="found-item">
+        <i class="fas fa-check-circle" style="color:var(--teal);font-size:12px;"></i>
+        <span class="site">${f.site}</span>
+        <span class="cat">${f.category||''}</span>
+        ${f.url ? `<a href="${f.url}" target="_blank" class="link"><i class="fas fa-external-link-alt"></i></a>` : ''}
+      </div>`).join('') + `</div>`;
+  }
+
+  if (data.raw) {
+    html += `<details style="margin-top:12px;"><summary style="font-size:10px;color:var(--text-dim);cursor:pointer;">RAW OUTPUT</summary><div class="raw-output">${data.raw}</div></details>`;
+  }
+  setResult(html);
+}
+
+// ─── HOLEHE ───
+async function runHolehe() {
+  const email = document.getElementById('holehe-email').value.trim();
+  if (!email) return;
+  setBtnLoading('btn-holehe', true);
+  setLoading('CHECKING EMAIL ACROSS PLATFORMS...');
+  const data = await post('/api/email/holehe', {email});
+  setBtnLoading('btn-holehe', false);
+
+  if (data.error) { setResult(alert_(data.error,'err')); return; }
+
+  const found = data.found || [];
+  let html = `<div class="summary-bar">
+    <div class="summary-stat"><div class="n">${data.total_found}</div><div class="l">Found</div></div>
+    <div class="summary-stat"><div class="n ${data.total_found>0?'pink':''}" style="font-size:16px;">${data.total_checked}</div><div class="l">Checked</div></div>
+  </div>`;
+
+  if (!found.length) {
+    html += alert_('No accounts found for this email address.', 'info');
+  } else {
+    found.forEach(f => {
+      html += `<div class="card">
+        <div class="card-header">
+          <span class="card-icon" style="color:var(--teal);"><i class="fas fa-check-circle"></i></span>
+          <span class="card-title">${f.name || f.domain || 'Unknown Service'}</span>
+          ${badge('FOUND', 'found')}
+        </div>
+        <div class="card-body">
+          ${kv('Domain', f.domain)}
+          ${f.email_recovery !== undefined ? kv('Email Recovery', f.email_recovery ? '✓' : '✗') : ''}
+          ${f.phone_number !== undefined ? kv('Phone Recovery', f.phone_number ? '✓' : '✗') : ''}
+          ${f.others ? `<div style="font-size:10px;color:var(--text-dim);margin-top:4px;">${JSON.stringify(f.others)}</div>` : ''}
+        </div>
+      </div>`;
+    });
+  }
+  setResult(html);
+}
+
+// ─── GHUNT ───
+async function runGhunt() {
+  const email = document.getElementById('ghunt-email').value.trim();
+  if (!email) return;
+  setBtnLoading('btn-ghunt', true);
+  setLoading('INVESTIGATING GOOGLE ACCOUNT...');
+  const data = await post('/api/email/ghunt', {email});
+  setBtnLoading('btn-ghunt', false);
+
+  if (data.error) { setResult(alert_(data.error,'err')); return; }
+
+  let html = `<div class="card">
+    <div class="card-header">
+      <span class="card-icon" style="color:#4285f4;"><i class="fab fa-google"></i></span>
+      <span class="card-title">Google Account OSINT</span>
+      ${data.gmail_exists === true ? badge('ACCOUNT EXISTS','found') : data.gmail_exists === false ? badge('NOT FOUND','warn') : badge('UNKNOWN','info')}
+    </div>
+    <div class="card-body">
+      ${kv('Email', data.email)}
+      ${kv('Domain', data.domain)}
+      ${kv('Is Gmail', data.is_gmail ? '✓ Yes' : '✗ No', data.is_gmail ? 'green':'dim')}
+      ${kv('Gmail Exists', data.gmail_exists === true ? '✓ Yes' : data.gmail_exists === false ? '✗ No' : '? Unknown', data.gmail_exists ? 'green':'dim')}
+      ${data.gravatar ? kv('Gravatar', data.gravatar.exists ? `<a href="${data.gravatar.url}" target="_blank" class="link">✓ Found — View</a>` : '✗ Not found') : ''}
+      ${kv('Checked Sources', (data.sources||[]).join(', '),'dim')}
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-header">
+      <span class="card-icon" style="color:var(--cyan);"><i class="fas fa-link"></i></span>
+      <span class="card-title">Investigation Links</span>
+    </div>
+    <div class="card-body">
+      ${kv('Google Search', `<a href="${data.google_search}" target="_blank" class="link">Open Search</a>`)}
+      ${data.profile_url ? kv('Profile URL', `<a href="${data.profile_url}" target="_blank" class="link">View Profile</a>`) : ''}
+    </div>
+  </div>`;
+  setResult(html);
+}
+
+// ─── PHONE ───
+async function runPhone() {
+  const number = document.getElementById('phone-number').value.trim();
+  if (!number) return;
+  setBtnLoading('btn-phone', true);
+  setLoading('LOOKING UP PHONE NUMBER...');
+  const data = await post('/api/phone', {number});
+  setBtnLoading('btn-phone', false);
+
+  if (data.error && !data.country) { setResult(alert_(data.error,'err')); return; }
+
+  const valid = data.valid;
+  let html = `<div class="card">
+    <div class="card-header">
+      <span class="card-icon" style="color:var(--amber);"><i class="fas fa-mobile-alt"></i></span>
+      <span class="card-title">Phone Number Intelligence</span>
+      ${valid ? badge('VALID','found') : badge('INVALID','warn')}
+    </div>
+    <div class="card-body">
+      ${kv('International', data.international, 'green')}
+      ${kv('National',      data.national)}
+      ${kv('E.164',         data.e164)}
+      ${kv('Country',       data.country)}
+      ${kv('Region',        data.region)}
+      ${kv('Carrier',       data.carrier || '—')}
+      ${kv('Line Type',     data.line_type)}
+      ${kv('Timezones',     safeval(data.timezones))}
+      ${kv('Valid',         valid ? '✓ Yes' : '✗ No', valid?'green':'pink')}
+    </div>
+  </div>`;
+
+  if (data.ipinfo && !data.ipinfo.error) {
+    const ip = data.ipinfo;
+    html += `<div class="card">
+      <div class="card-header"><span class="card-icon" style="color:var(--cyan);"><i class="fas fa-map-marker-alt"></i></span><span class="card-title">IPInfo Data</span></div>
+      <div class="card-body">
+        ${kv('City',     ip.city)}
+        ${kv('Region',   ip.region)}
+        ${kv('Country',  ip.country)}
+        ${kv('Org/ISP',  ip.org)}
+      </div>
+    </div>`;
+  }
+
+  if (data.numverify) {
+    const nv = data.numverify;
+    html += `<div class="card">
+      <div class="card-header"><span class="card-icon" style="color:var(--orange);"><i class="fas fa-sim-card"></i></span><span class="card-title">Carrier Details</span></div>
+      <div class="card-body">
+        ${kv('Line Type',     nv.line_type)}
+        ${kv('Location',      nv.location)}
+        ${kv('Carrier',       nv.carrier)}
+        ${kv('Country',       nv.country_name)}
+      </div>
+    </div>`;
+  }
+  setResult(html);
+}
+
+// ─── WHOIS ───
+async function runWhois() {
+  const domain = document.getElementById('domain-input').value.trim();
+  if (!domain) return;
+  setBtnLoading('btn-whois', true);
+  setLoading('QUERYING DOMAIN INTELLIGENCE...');
+  const data = await post('/api/domain', {domain});
+  setBtnLoading('btn-whois', false);
+
+  let html = `<div class="card">
+    <div class="card-header">
+      <span class="card-icon" style="color:var(--amber);"><i class="fas fa-globe"></i></span>
+      <span class="card-title">WHOIS — ${data.domain}</span>
+      ${data.resolves ? badge('RESOLVES','found') : badge('NO DNS','warn')}
+    </div>
+    <div class="card-body">
+      ${kv('Registrar',        safeval(data.registrar))}
+      ${kv('Registrant',       safeval(data.registrant_org))}
+      ${kv('Country',          safeval(data.country))}
+      ${kv('City',             safeval(data.city))}
+      ${kv('Created',          safeval(data.creation_date))}
+      ${kv('Expires',          safeval(data.expiration_date))}
+      ${kv('Updated',          safeval(data.updated_date))}
+      ${kv('DNSSEC',           safeval(data.dnssec),'dim')}
+      ${data.emails?.length ? kv('Emails', data.emails.join(', ')) : ''}
+      ${data.status?.length ? kv('Status', data.status.slice(0,3).join(' | '),'dim') : ''}
+    </div>
+  </div>`;
+
+  if (data.name_servers?.length) {
+    html += `<div class="card">
+      <div class="card-header"><span class="card-icon" style="color:var(--cyan);"><i class="fas fa-server"></i></span><span class="card-title">Name Servers</span></div>
+      <div class="card-body">
+        ${data.name_servers.slice(0,8).map(ns => `<div class="kv"><span class="kv-key">${ns}</span></div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  if (data.ip_address) {
+    html += `<div class="card">
+      <div class="card-header"><span class="card-icon" style="color:var(--orange);"><i class="fas fa-network-wired"></i></span><span class="card-title">IP & Hosting</span></div>
+      <div class="card-body">
+        ${kv('IP Address', data.ip_address, 'green')}
+        ${data.ip_info ? kv('City',    data.ip_info.city)    : ''}
+        ${data.ip_info ? kv('Country', data.ip_info.country) : ''}
+        ${data.ip_info ? kv('Org/ASN', data.ip_info.org)     : ''}
+        ${data.ip_info ? kv('Timezone',data.ip_info.timezone): ''}
+      </div>
+    </div>`;
+  }
+
+  if (data.ssl) {
+    const ssl = data.ssl;
+    html += `<div class="card">
+      <div class="card-header"><span class="card-icon" style="color:var(--purple);"><i class="fas fa-lock"></i></span><span class="card-title">SSL Certificate</span></div>
+      <div class="card-body">
+        ${kv('Issuer',   ssl.issuer?.organizationName || ssl.issuer?.commonName || '—')}
+        ${kv('Subject',  ssl.subject?.commonName || '—')}
+        ${kv('Expires',  ssl.not_after || '—')}
+        ${ssl.sans?.length ? kv('SANs', ssl.sans.slice(0,5).join(', '),'dim') : ''}
+      </div>
+    </div>`;
+  }
+  setResult(html);
+}
+
+// ─── IGINFO ───
+async function runIgInfo() {
+  const username = document.getElementById('ig-username').value.trim().replace('@','');
+  if (!username) return;
+  setBtnLoading('btn-iginfo', true);
+  setLoading('SCANNING INSTAGRAM PROFILE...');
+  const data = await post('/api/instagram/info', {username});
+  setBtnLoading('btn-iginfo', false);
+
+  if (data.error) { setResult(alert_(data.error,'err')); return; }
+
+  let html = `<div class="card">
+    <div class="card-header">
+      <span class="card-icon" style="color:#e1306c;"><i class="fab fa-instagram"></i></span>
+      <span class="card-title">@${data.username}</span>
+      ${data.is_verified ? badge('VERIFIED','found') : ''}
+      ${data.is_private ? badge('PRIVATE','warn') : badge('PUBLIC','info')}
+    </div>
+    <div class="card-body">
+      ${kv('Full Name',       data.full_name)}
+      ${kv('User ID',         data.userid, 'cyan')}
+      ${kv('Followers',       (data.followers||0).toLocaleString(), 'green')}
+      ${kv('Following',       (data.followees||0).toLocaleString())}
+      ${kv('Posts',           (data.posts||0).toLocaleString())}
+      ${kv('Verified',        data.is_verified ? '✓ Yes' : '✗ No', data.is_verified?'green':'dim')}
+      ${kv('Private',         data.is_private  ? '✓ Yes' : '✗ No', data.is_private?'pink':'dim')}
+      ${kv('Business',        data.is_business ? '✓ Yes' : '✗ No', data.is_business?'orange':'dim')}
+      ${data.business_category ? kv('Business Category', data.business_category, 'orange') : ''}
+      ${data.external_url ? kv('External URL', `<a href="${data.external_url}" class="link" target="_blank">${data.external_url}</a>`) : ''}
+    </div>
+  </div>`;
+
+  if (data.biography) {
+    html += `<div class="card">
+      <div class="card-header"><span class="card-icon"><i class="fas fa-align-left"></i></span><span class="card-title">Biography</span></div>
+      <div class="card-body"><div style="font-size:11px;line-height:1.7;color:var(--text);">${data.biography}</div></div>
+    </div>`;
+  }
+
+  if (data.profile_pic_url) {
+    html += `<div class="card">
+      <div class="card-header"><span class="card-icon"><i class="fas fa-image"></i></span><span class="card-title">Profile Picture</span></div>
+      <div class="card-body">
+        <a href="${data.instagram_url}" target="_blank">
+          <img src="${data.profile_pic_url}" style="max-width:120px;max-height:120px;border:1px solid var(--border);border-radius:50%;" onerror="this.style.display='none'">
+        </a>
+        <div style="margin-top:8px;"><a href="${data.instagram_url}" class="link" target="_blank"><i class="fab fa-instagram"></i> Open Profile</a></div>
+      </div>
+    </div>`;
+  }
+  setResult(html);
+}
+
+// ─── TOUTATIS ───
+async function runToutatis() {
+  const username  = document.getElementById('tout-username').value.trim().replace('@','');
+  const sessionid = document.getElementById('tout-session').value.trim();
+  if (!username) return;
+  setBtnLoading('btn-toutatis', true);
+  setLoading('RUNNING TOUTATIS DEEP SCAN...');
+  const data = await post('/api/instagram/toutatis', {username, sessionid});
+  setBtnLoading('btn-toutatis', false);
+
+  if (data.error) { setResult(alert_(data.error,'err')); return; }
+
+  const d = data.data || data;
+  let html = `<div class="card">
+    <div class="card-header">
+      <span class="card-icon" style="color:var(--amber);"><i class="fas fa-spider"></i></span>
+      <span class="card-title">Toutatis — @${data.username}</span>
+      ${badge('DEEP SCAN','found')}
+    </div>
+    <div class="card-body">`;
+
+  if (typeof d === 'object') {
+    Object.entries(d).forEach(([k,v]) => {
+      if (v && v !== 'None' && v !== null) html += kv(k, typeof v === 'object' ? JSON.stringify(v) : v);
+    });
+  } else {
+    html += `<div style="font-size:11px;">${JSON.stringify(d, null, 2)}</div>`;
+  }
+  html += `</div></div>`;
+  setResult(html);
+}
+
+// ─── HIBP EMAIL ───
+async function runHibpEmail() {
+  const email = document.getElementById('hibp-email-input').value.trim();
+  if (!email) return;
+  setBtnLoading('btn-hibp-email', true);
+  setLoading('CHECKING BREACH DATABASES...');
+  const data = await post('/api/hibp/email', {email});
+  setBtnLoading('btn-hibp-email', false);
+
+  if (data.error) { setResult(alert_(data.error,'err')); return; }
+
+  const breaches = data.breaches || [];
+  const pastes   = data.pastes   || [];
+
+  let html = `<div class="summary-bar">
+    <div class="summary-stat"><div class="n ${breaches.length>0?'pink':''}">${breaches.length}</div><div class="l">Breaches</div></div>
+    <div class="summary-stat"><div class="n ${pastes.length>0?'orange':''}">${pastes.length}</div><div class="l">Pastes</div></div>
+  </div>`;
+
+  if (!data.breached) {
+    html += alert_(`✓ ${email} not found in any known data breaches.`, 'ok');
+  } else {
+    html += alert_(`⚠ ${email} was found in ${breaches.length} breach(es). Consider changing your password.`, 'err');
+  }
+
+  breaches.forEach(b => {
+    html += `<div class="breach-item">
+      <div class="breach-name"><i class="fas fa-exclamation-circle"></i> ${b.Name}</div>
+      <div class="breach-meta">${b.BreachDate || ''} · ${(b.PwnCount||0).toLocaleString()} accounts affected · ${b.Domain||''}</div>
+      <div class="breach-classes">
+        ${(b.DataClasses||[]).map(c => `<span class="tag pink">${c}</span>`).join('')}
+      </div>
+    </div>`;
+  });
+
+  if (pastes.length) {
+    html += `<div class="card" style="margin-top:12px;">
+      <div class="card-header"><span class="card-icon" style="color:var(--orange);"><i class="fas fa-paste"></i></span><span class="card-title">Paste Sites (${pastes.length})</span></div>
+      <div class="card-body">
+        ${pastes.slice(0,10).map(p => `<div class="kv"><span class="kv-key">${p.Source||'Unknown'}</span><span class="kv-val dim">${p.Date||'Unknown date'}</span></div>`).join('')}
+      </div>
+    </div>`;
+  }
+  setResult(html);
+}
+
+// ─── HIBP PASSWORD ───
+async function runHibpPassword() {
+  const password = document.getElementById('hibp-password-input').value;
+  if (!password) return;
+  setBtnLoading('btn-hibp-pwd', true);
+  setLoading('CHECKING PASSWORD AGAINST BREACH DATABASE...');
+  const data = await post('/api/hibp/password', {password});
+  setBtnLoading('btn-hibp-pwd', false);
+
+  if (data.error) { setResult(alert_(data.error,'err')); return; }
+
+  const colors = {critical:'var(--pink)', high:'var(--orange)', medium:'var(--yellow)', safe:'var(--green)'};
+  const sev = data.severity || 'safe';
+  const color = colors[sev] || 'var(--green)';
+
+  let html = `<div class="password-result">
+    <div class="big-icon" style="color:${color};">
+      <i class="fas fa-${data.pwned ? 'times-circle' : 'check-circle'}"></i>
+    </div>
+    <div class="verdict" style="color:${color};">${data.pwned ? 'PASSWORD COMPROMISED' : 'PASSWORD SAFE'}</div>
+    <div class="details">${data.message}</div>
+    ${data.pwned ? `<div style="margin-top:16px;padding:10px;background:rgba(226,75,74,.07);border:1px solid rgba(226,75,74,.25);border-radius:4px;font-size:10px;color:var(--text-dim);">This password has appeared in ${(data.count||0).toLocaleString()} data breaches. Change it immediately on all sites where you use it.</div>` : ''}
+  </div>`;
+  setResult(html);
+}
+
+// ─── TELCEK ───
+async function runTelcek() {
+  const number = document.getElementById('telcek-number').value.trim();
+  if (!number) return;
+  setBtnLoading('btn-telcek', true);
+  setLoading('CHECKING MESSENGER REGISTRATIONS...');
+  const data = await post('/api/messenger', {number});
+  setBtnLoading('btn-telcek', false);
+
+  if (data.error) { setResult(alert_(data.error,'err')); return; }
+
+  const pi = data.phone_info || {};
+  let html = `<div class="card">
+    <div class="card-header">
+      <span class="card-icon" style="color:var(--amber);"><i class="fas fa-mobile-alt"></i></span>
+      <span class="card-title">Phone Intelligence</span>
+      ${pi.valid ? badge('VALID','found') : badge('INVALID','warn')}
+    </div>
+    <div class="card-body">
+      ${kv('Number',      pi.international || number)}
+      ${kv('Country',     pi.country)}
+      ${kv('Carrier',     pi.carrier || '—')}
+      ${kv('Region',      pi.region)}
+      ${kv('Valid',       pi.valid ? '✓ Yes' : '✗ No', pi.valid?'green':'pink')}
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-header"><span class="card-icon"><i class="fas fa-comments"></i></span><span class="card-title">Messenger Check</span></div>
+    <div class="card-body">`;
+
+  const platforms = data.platforms || {};
+  const icons = {whatsapp:'fa-whatsapp', telegram:'fa-telegram', viber:'fa-viber', signal:'fa-signal', truecaller:'fa-phone'};
+  const pColors = {whatsapp:'#25D366', telegram:'#2CA5E0', viber:'#7360F2', signal:'#3A76F0', truecaller:'#FF6900'};
+
+  Object.entries(platforms).forEach(([name, info]) => {
+    const ic = icons[name] ? `fab ${icons[name]}` : 'fas fa-comment';
+    const col = pColors[name] || 'var(--text-dim)';
+    html += `<div class="platform-row">
+      <span class="platform-icon" style="color:${col};"><i class="${ic}"></i></span>
+      <div class="platform-info">
+        <div class="platform-name">${name.charAt(0).toUpperCase()+name.slice(1)}</div>
+        <div class="platform-detail">
+          ${info.check_url ? `<a href="${info.check_url}" target="_blank" class="link">Open Check Link</a> · ` : ''}
+          ${info.deep_link ? `<a href="${info.deep_link}" target="_blank" class="link">Open Deep Link</a> · ` : ''}
+          ${info.search_link ? `<a href="${info.search_link}" target="_blank" class="link">Telegram Link</a> · ` : ''}
+          ${info.note || info.info || info.status || ''}
+        </div>
+      </div>
+    </div>`;
+  });
+
+  html += `</div></div>`;
+  setResult(html);
+}
+
+// ─── STATUS ───
+async function loadStatus() {
+  document.getElementById('status-result').innerHTML = '<div class="spinner" style="padding:20px 0;"><i class="fas fa-spinner"></i><p>CHECKING...</p></div>';
+  const data = await fetch('/api/status').then(r=>r.json());
+  const tools = data.tools || {};
+  const labels = {
+    maigret:      'maigret (username)',
+    holehe:       'holehe (email)',
+    instaloader:  'instaloader (iginfo)',
+    toutatis:     'toutatis (instagram deep)',
+    phonenumbers: 'phonenumbers (phone)',
+    whois:        'python-whois (domain)',
+    requests:     'requests (HTTP)',
+    hibp_key:     'HIBP API Key',
+    ipinfo_token: 'IPInfo Token',
+    ig_session:   'Instagram SessionID',
+  };
+  let html = Object.entries(labels).map(([k,l]) => {
+    const ok = tools[k];
+    return `<div class="kv" style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+      <span class="kv-key">${l}</span>
+      <span class="kv-val ${ok?'green':'pink'}">${ok ? '✓ Ready' : '✗ Not configured'}</span>
+    </div>`;
+  }).join('');
+  document.getElementById('status-result').innerHTML = html;
+}
+
+// Fix JS syntax in colors object
+</script>
+</body>
+</html>

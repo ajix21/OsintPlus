@@ -1,0 +1,694 @@
+"""
+OSINT Plus — Multi-Tool Open Source Intelligence Platform
+Tools: maigret · holehe · ghunt · ipinfo · whois · iginfo · toutatis · hibp · telcek
+"""
+from flask import Flask, render_template, jsonify, request
+import subprocess, json, os, re, hashlib, socket, time, sys
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# Resolve venv-local executables (maigret, etc.)
+_SCRIPTS_DIR = os.path.join(os.path.dirname(sys.executable))
+MAIGRET_EXE  = os.path.join(_SCRIPTS_DIR, "maigret.exe") if os.name == "nt" else os.path.join(_SCRIPTS_DIR, "maigret")
+import phonenumbers
+from phonenumbers import geocoder as ph_geocoder, carrier as ph_carrier, timezone as ph_tz
+import whois as pywhois
+import requests
+from bs4 import BeautifulSoup
+from dotenv import load_dotenv
+
+_env_path = os.path.join(os.path.dirname(__file__), ".env")
+load_dotenv(_env_path, override=True)
+
+app = Flask(__name__)
+app.secret_key = os.urandom(24)
+
+IPINFO_TOKEN       = os.getenv("IPINFO_TOKEN", "")
+HIBP_API_KEY       = os.getenv("HIBP_API_KEY", "")
+INSTAGRAM_SESSIONID = os.getenv("INSTAGRAM_SESSIONID", "")
+
+BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
+}
+
+
+# ─────────────────────────────────────────────
+# ROOT
+# ─────────────────────────────────────────────
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+
+# ─────────────────────────────────────────────
+# USERNAME — maigret
+# ─────────────────────────────────────────────
+@app.route("/api/username/maigret", methods=["POST"])
+def username_maigret():
+    data = request.json or {}
+    username = data.get("username", "").strip()
+    if not username or not re.match(r"^[\w.\-]{1,50}$", username):
+        return jsonify({"error": "Invalid username (1-50 chars, alphanumeric/._-)"}), 400
+
+    import tempfile, glob as _glob
+    tmpdir = tempfile.mkdtemp(prefix="maigret_")
+    try:
+        result = subprocess.run(
+            [MAIGRET_EXE, username,
+             "-J", "simple",          # JSON report (simple format)
+             "--no-progressbar",
+             "--timeout", "10",
+             "--retries", "1",
+             "--top-sites", "500",    # limit to top 500 sites for speed
+             "--folderoutput", tmpdir],
+            capture_output=True, text=True, timeout=180
+        )
+
+        raw_output = (result.stdout or "") + (result.stderr or "")
+        found_sites = []
+
+        # Read the JSON report file maigret wrote
+        json_files = _glob.glob(os.path.join(tmpdir, "*.json"))
+        if json_files:
+            try:
+                with open(json_files[0], encoding="utf-8") as f:
+                    jdata = json.load(f)
+                for site, info in jdata.items():
+                    status = info.get("status", {})
+                    # status is a dict: {"status": "Claimed"|"Found"|"Not Found", ...}
+                    if isinstance(status, dict):
+                        sid = status.get("status", "")
+                    else:
+                        sid = str(status)
+                    if sid.lower() in ("claimed", "found"):
+                        tags = status.get("tags", info.get("tags", []))
+                        found_sites.append({
+                            "site":     site,
+                            "url":      info.get("url_user") or status.get("url", ""),
+                            "status":   "FOUND",
+                            "category": tags[0] if tags else "other",
+                        })
+            except Exception:
+                pass
+
+        # Fallback: parse text lines "[+] Site - URL"
+        if not found_sites:
+            for line in raw_output.split("\n"):
+                if "[+]" in line:
+                    m = re.search(r"https?://\S+", line)
+                    site_m = re.match(r"\[.\]\s+(.+?)[\s\-:]+https?://", line)
+                    found_sites.append({
+                        "site":     site_m.group(1).strip() if site_m else line.replace("[+]", "").strip(),
+                        "url":      m.group(0) if m else "",
+                        "status":   "FOUND",
+                        "category": "social",
+                    })
+
+        return jsonify({
+            "username": username,
+            "found":    found_sites,
+            "total":    len(found_sites),
+            "raw":      raw_output[:3000],
+        })
+
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "Search timed out (180 s)", "username": username}), 408
+    except FileNotFoundError:
+        return jsonify({"error": f"maigret not found at {MAIGRET_EXE}"}), 500
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    finally:
+        import shutil
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# ─────────────────────────────────────────────
+# EMAIL — holehe
+# ─────────────────────────────────────────────
+@app.route("/api/email/holehe", methods=["POST"])
+def email_holehe():
+    data = request.json or {}
+    email = data.get("email", "").strip()
+    if not email or "@" not in email:
+        return jsonify({"error": "Invalid email address"}), 400
+
+    try:
+        import asyncio, httpx
+        from holehe.core import import_submodules, get_functions
+
+        async def _run():
+            client = httpx.AsyncClient()
+            mods = import_submodules("holehe.modules")
+            funcs = get_functions(mods)
+            out = []
+            for fn in funcs:
+                try:
+                    await fn(email, client, out)
+                except Exception:
+                    pass
+            await client.aclose()
+            return out
+
+        loop = asyncio.new_event_loop()
+        results = loop.run_until_complete(_run())
+        loop.close()
+
+        found     = [r for r in results if r.get("exists")]
+        not_found = [r for r in results if not r.get("exists") and r.get("name")]
+
+        return jsonify({
+            "email":         email,
+            "found":         found,
+            "not_found":     not_found,
+            "total_checked": len(results),
+            "total_found":   len(found),
+        })
+
+    except ImportError:
+        return jsonify({"error": "holehe not installed — run: pip install holehe"}), 500
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+# ─────────────────────────────────────────────
+# EMAIL — ghunt (simplified Google OSINT)
+# ─────────────────────────────────────────────
+@app.route("/api/email/ghunt", methods=["POST"])
+def email_ghunt():
+    data = request.json or {}
+    email = data.get("email", "").strip().lower()
+    if not email or "@" not in email:
+        return jsonify({"error": "Invalid email"}), 400
+
+    result = {
+        "email":    email,
+        "domain":   email.split("@")[1],
+        "is_gmail": email.endswith("@gmail.com"),
+        "sources":  [],
+    }
+
+    # Check Gmail existence via Google gxlu endpoint
+    try:
+        r = requests.get(
+            f"https://mail.google.com/mail/gxlu?email={email}",
+            headers=BROWSER_HEADERS, timeout=10, allow_redirects=False
+        )
+        result["gmail_exists"] = r.status_code == 200 or "set-cookie" in r.headers
+        result["sources"].append("google_gxlu")
+    except Exception:
+        result["gmail_exists"] = None
+
+    # Check Google Calendar public profile
+    if result["is_gmail"]:
+        try:
+            r2 = requests.get(
+                f"https://calendar.google.com/calendar/r/search?q={email}",
+                headers=BROWSER_HEADERS, timeout=8
+            )
+            result["calendar_accessible"] = r2.status_code == 200
+        except Exception:
+            pass
+
+    # Gravatar check
+    md5_hash = hashlib.md5(email.encode()).hexdigest()
+    gravatar_url = f"https://www.gravatar.com/avatar/{md5_hash}?d=404"
+    try:
+        gr = requests.get(gravatar_url, timeout=8)
+        result["gravatar"] = {
+            "exists": gr.status_code == 200,
+            "url":    f"https://www.gravatar.com/avatar/{md5_hash}",
+        }
+        result["sources"].append("gravatar")
+    except Exception:
+        pass
+
+    # Google search links
+    result["google_search"] = f'https://www.google.com/search?q="{email}"'
+    result["profile_url"]   = f"https://profiles.google.com/{email}"
+
+    return jsonify(result)
+
+
+# ─────────────────────────────────────────────
+# PHONE — ipinfo (phonenumbers + ipinfo.io)
+# ─────────────────────────────────────────────
+@app.route("/api/phone", methods=["POST"])
+def phone_lookup():
+    data = request.json or {}
+    number = data.get("number", "").strip()
+    if not number:
+        return jsonify({"error": "Phone number required"}), 400
+
+    result = {"raw": number, "sources": []}
+
+    # phonenumbers library
+    try:
+        parsed = phonenumbers.parse(number, None)
+        num_type = phonenumbers.number_type(parsed)
+        type_map = {
+            phonenumbers.PhoneNumberType.MOBILE:       "MOBILE",
+            phonenumbers.PhoneNumberType.FIXED_LINE:   "FIXED_LINE",
+            phonenumbers.PhoneNumberType.FIXED_LINE_OR_MOBILE: "FIXED/MOBILE",
+            phonenumbers.PhoneNumberType.TOLL_FREE:    "TOLL_FREE",
+            phonenumbers.PhoneNumberType.VOIP:         "VOIP",
+            phonenumbers.PhoneNumberType.PAGER:        "PAGER",
+            phonenumbers.PhoneNumberType.PREMIUM_RATE: "PREMIUM_RATE",
+        }
+        result.update({
+            "valid":         phonenumbers.is_valid_number(parsed),
+            "possible":      phonenumbers.is_possible_number(parsed),
+            "international": phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.INTERNATIONAL),
+            "national":      phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.NATIONAL),
+            "e164":          phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164),
+            "country_code":  parsed.country_code,
+            "country":       ph_geocoder.description_for_number(parsed, "en"),
+            "region":        phonenumbers.region_code_for_number(parsed),
+            "carrier":       ph_carrier.name_for_number(parsed, "en"),
+            "timezones":     list(ph_tz.time_zones_for_number(parsed)),
+            "line_type":     type_map.get(num_type, "UNKNOWN"),
+        })
+        result["sources"].append("phonenumbers")
+    except Exception as exc:
+        result["parse_error"] = str(exc)
+
+    # ipinfo.io
+    e164 = result.get("e164", re.sub(r"[^\d+]", "", number))
+    try:
+        ip_url = f"https://ipinfo.io/{e164}/json"
+        if IPINFO_TOKEN:
+            ip_url += f"?token={IPINFO_TOKEN}"
+        r = requests.get(ip_url, timeout=10)
+        if r.status_code == 200:
+            result["ipinfo"] = r.json()
+            result["sources"].append("ipinfo.io")
+    except Exception:
+        pass
+
+    # Numverify (free limited — no key needed for basic)
+    try:
+        nv = requests.get(
+            f"http://apilayer.net/api/validate?number={e164}&format=1",
+            timeout=8
+        )
+        if nv.status_code == 200:
+            nv_data = nv.json()
+            if nv_data.get("valid"):
+                result["numverify"] = {
+                    "line_type":   nv_data.get("line_type"),
+                    "location":    nv_data.get("location"),
+                    "carrier":     nv_data.get("carrier"),
+                    "country_name": nv_data.get("country_name"),
+                }
+                result["sources"].append("numverify")
+    except Exception:
+        pass
+
+    return jsonify(result)
+
+
+# ─────────────────────────────────────────────
+# DOMAIN — whois
+# ─────────────────────────────────────────────
+@app.route("/api/domain", methods=["POST"])
+def domain_lookup():
+    data = request.json or {}
+    domain = data.get("domain", "").strip().lower()
+    domain = re.sub(r"^https?://", "", domain).split("/")[0].split("?")[0]
+    if not domain or "." not in domain:
+        return jsonify({"error": "Invalid domain"}), 400
+
+    result = {"domain": domain, "sources": []}
+
+    # WHOIS
+    try:
+        w = pywhois.whois(domain)
+
+        def _str(v):
+            if v is None:
+                return None
+            if isinstance(v, list):
+                v = v[0]
+            return str(v)
+
+        result.update({
+            "registrar":       w.registrar,
+            "creation_date":   _str(w.creation_date),
+            "expiration_date": _str(w.expiration_date),
+            "updated_date":    _str(w.updated_date),
+            "name_servers":    [str(ns).upper() for ns in (w.name_servers or [])],
+            "status":          [str(s).split()[0] for s in (w.status or [])],
+            "registrant_org":  w.org or w.registrant_name,
+            "country":         w.country,
+            "city":            w.city,
+            "emails":          list(set(w.emails)) if w.emails else [],
+            "dnssec":          str(w.dnssec) if w.dnssec else None,
+        })
+        result["sources"].append("whois")
+    except Exception as exc:
+        result["whois_error"] = str(exc)
+
+    # DNS + IP
+    try:
+        ip = socket.gethostbyname(domain)
+        result["ip_address"] = ip
+        result["resolves"]   = True
+        result["sources"].append("dns")
+
+        r = requests.get(f"https://ipinfo.io/{ip}/json", timeout=8)
+        if r.status_code == 200:
+            ipd = r.json()
+            result["ip_info"] = {
+                "ip":       ipd.get("ip"),
+                "city":     ipd.get("city"),
+                "region":   ipd.get("region"),
+                "country":  ipd.get("country"),
+                "org":      ipd.get("org"),
+                "timezone": ipd.get("timezone"),
+                "loc":      ipd.get("loc"),
+            }
+            result["sources"].append("ipinfo.io")
+    except Exception as exc:
+        result["resolves"]  = False
+        result["dns_error"] = str(exc)
+
+    # SSL certificate check
+    try:
+        import ssl
+        ctx = ssl.create_default_context()
+        with ctx.wrap_socket(socket.socket(), server_hostname=domain) as s:
+            s.settimeout(8)
+            s.connect((domain, 443))
+            cert = s.getpeercert()
+            result["ssl"] = {
+                "issuer":   dict(x[0] for x in cert.get("issuer", [])),
+                "subject":  dict(x[0] for x in cert.get("subject", [])),
+                "not_after": cert.get("notAfter"),
+                "sans":     [v for _, v in cert.get("subjectAltName", [])],
+            }
+    except Exception:
+        result["ssl"] = None
+
+    return jsonify(result)
+
+
+# ─────────────────────────────────────────────
+# INSTAGRAM — iginfo (instaloader)
+# ─────────────────────────────────────────────
+@app.route("/api/instagram/info", methods=["POST"])
+def instagram_info():
+    from urllib.parse import unquote
+    data = request.json or {}
+    username = data.get("username", "").strip().lstrip("@")
+    if not username:
+        return jsonify({"error": "Username required"}), 400
+
+    session_id = unquote(INSTAGRAM_SESSIONID) if INSTAGRAM_SESSIONID else ""
+
+    # Use Instagram web API directly with session cookie
+    ig_headers = {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "X-IG-App-ID": "936619743392459",
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": f"https://www.instagram.com/{username}/",
+    }
+    ig_cookies = {}
+    if session_id:
+        ig_cookies["sessionid"] = session_id
+        ig_cookies["ds_user_id"] = session_id.split(":")[0]
+
+    try:
+        # Try web_profile_info API
+        r = requests.get(
+            f"https://www.instagram.com/api/v1/users/web_profile_info/?username={username}",
+            headers=ig_headers, cookies=ig_cookies, timeout=15
+        )
+        if r.status_code == 200:
+            raw = r.json()
+            u = raw.get("data", {}).get("user", {})
+            if not u:
+                return jsonify({"error": f"Profile '{username}' tidak ditemukan"}), 404
+            return jsonify({
+                "username":          u.get("username"),
+                "userid":            u.get("id"),
+                "full_name":         u.get("full_name"),
+                "biography":         u.get("biography"),
+                "followers":         u.get("edge_followed_by", {}).get("count"),
+                "followees":         u.get("edge_follow", {}).get("count"),
+                "posts":             u.get("edge_owner_to_timeline_media", {}).get("count"),
+                "is_private":        u.get("is_private"),
+                "is_verified":       u.get("is_verified"),
+                "is_business":       u.get("is_business_account"),
+                "business_category": u.get("business_category_name"),
+                "external_url":      u.get("external_url"),
+                "profile_pic_url":   u.get("profile_pic_url_hd") or u.get("profile_pic_url"),
+                "instagram_url":     f"https://www.instagram.com/{username}/",
+                "pronouns":          u.get("pronouns"),
+                "account_type":      u.get("account_type"),
+            })
+        elif r.status_code == 401:
+            return jsonify({"error": "Session ID tidak valid atau sudah expired. Perbarui INSTAGRAM_SESSIONID di .env"}), 401
+        else:
+            return jsonify({"error": f"Instagram API mengembalikan HTTP {r.status_code}"}), r.status_code
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+# ─────────────────────────────────────────────
+# INSTAGRAM — toutatis (deep OSINT, needs sessionid)
+# ─────────────────────────────────────────────
+@app.route("/api/instagram/toutatis", methods=["POST"])
+def instagram_toutatis():
+    from urllib.parse import unquote
+    data = request.json or {}
+    username  = data.get("username", "").strip().lstrip("@")
+    _raw_sid  = data.get("sessionid") or INSTAGRAM_SESSIONID or ""
+    sessionid = unquote(_raw_sid.strip())
+
+    if not username:
+        return jsonify({"error": "Username required"}), 400
+    if not sessionid:
+        return jsonify({"error": "Instagram sessionid required (set in .env atau kirim di request)"}), 400
+
+    try:
+        from toutatis.core import getUserId, getInfo
+        user_id = getUserId(username, sessionid)
+        infos   = getInfo(username, sessionid)
+        return jsonify({"username": username, "user_id": user_id, "data": infos})
+    except ImportError:
+        return jsonify({"error": "toutatis not installed — run: pip install toutatis"}), 500
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+# ─────────────────────────────────────────────
+# SECURITY — HIBP Email breach check
+# ─────────────────────────────────────────────
+@app.route("/api/hibp/email", methods=["POST"])
+def hibp_email():
+    data = request.json or {}
+    email = data.get("email", "").strip()
+    if not email or "@" not in email:
+        return jsonify({"error": "Invalid email"}), 400
+
+    if not HIBP_API_KEY:
+        return jsonify({
+            "error": "HIBP API key required. Get one at haveibeenpwned.com/API/Key",
+            "email": email,
+        }), 403
+
+    headers = {
+        "hibp-api-key": HIBP_API_KEY,
+        "User-Agent": "OsintPlus-Security-Tool",
+    }
+    result = {"email": email, "breaches": [], "pastes": [], "breached": False}
+
+    try:
+        r = requests.get(
+            f"https://haveibeenpwned.com/api/v3/breachedaccount/{email}?truncateResponse=false",
+            headers=headers, timeout=15
+        )
+        if r.status_code == 200:
+            result["breaches"] = r.json()
+            result["breached"] = True
+            result["total_breaches"] = len(result["breaches"])
+        elif r.status_code == 404:
+            result["breached"] = False
+            result["total_breaches"] = 0
+        elif r.status_code == 429:
+            time.sleep(1.5)
+            return hibp_email()
+        else:
+            result["breach_error"] = f"HTTP {r.status_code}"
+    except Exception as exc:
+        result["breach_error"] = str(exc)
+
+    try:
+        r2 = requests.get(
+            f"https://haveibeenpwned.com/api/v3/pasteaccount/{email}",
+            headers=headers, timeout=15
+        )
+        if r2.status_code == 200:
+            result["pastes"] = r2.json()
+            result["total_pastes"] = len(result["pastes"])
+    except Exception:
+        pass
+
+    return jsonify(result)
+
+
+# ─────────────────────────────────────────────
+# SECURITY — HIBP Password check (k-anonymity, no key needed)
+# ─────────────────────────────────────────────
+@app.route("/api/hibp/password", methods=["POST"])
+def hibp_password():
+    data = request.json or {}
+    password = data.get("password", "")
+    if not password:
+        return jsonify({"error": "Password required"}), 400
+
+    sha1   = hashlib.sha1(password.encode()).hexdigest().upper()
+    prefix = sha1[:5]
+    suffix = sha1[5:]
+
+    try:
+        r = requests.get(f"https://api.pwnedpasswords.com/range/{prefix}", timeout=10)
+        hashes = {}
+        for line in r.text.strip().split("\n"):
+            parts = line.strip().split(":")
+            if len(parts) == 2:
+                hashes[parts[0]] = int(parts[1])
+
+        count = hashes.get(suffix, 0)
+        return jsonify({
+            "pwned": count > 0,
+            "count": count,
+            "severity": "critical" if count > 100000 else "high" if count > 1000 else "medium" if count > 0 else "safe",
+            "message": (
+                f"Password found {count:,} times in data breaches — CHANGE IT IMMEDIATELY!"
+                if count > 0
+                else "Password not found in any known breach database."
+            ),
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+# ─────────────────────────────────────────────
+# MESSENGER — telcek (Telegram / WhatsApp / Signal check)
+# ─────────────────────────────────────────────
+@app.route("/api/messenger", methods=["POST"])
+def messenger_check():
+    data = request.json or {}
+    number = data.get("number", "").strip()
+    if not number:
+        return jsonify({"error": "Phone number required"}), 400
+
+    result = {"number": number, "platforms": {}, "phone_info": {}}
+
+    # Parse phone number
+    try:
+        parsed   = phonenumbers.parse(number, None)
+        is_valid = phonenumbers.is_valid_number(parsed)
+        e164     = phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
+        clean    = re.sub(r"[^\d]", "", e164)
+        result["phone_info"] = {
+            "valid":         is_valid,
+            "country":       ph_geocoder.description_for_number(parsed, "en"),
+            "carrier":       ph_carrier.name_for_number(parsed, "en"),
+            "region":        phonenumbers.region_code_for_number(parsed),
+            "international": phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.INTERNATIONAL),
+        }
+    except Exception as exc:
+        result["parse_error"] = str(exc)
+        clean = re.sub(r"[^\d]", "", number)
+
+    # WhatsApp
+    try:
+        wa_url = f"https://wa.me/{clean}"
+        r_wa = requests.get(wa_url, headers=BROWSER_HEADERS, timeout=10, allow_redirects=True)
+        wa_exists = "whatsapp" in r_wa.url.lower() or r_wa.status_code == 200
+        result["platforms"]["whatsapp"] = {
+            "check_url":    wa_url,
+            "status":       "possible" if wa_exists else "unknown",
+            "note":         "Open link to verify manually",
+        }
+    except Exception as exc:
+        result["platforms"]["whatsapp"] = {"status": "error", "error": str(exc)}
+
+    # Telegram deep link
+    result["platforms"]["telegram"] = {
+        "deep_link":    f"https://t.me/+{clean}",
+        "status":       "manual_check",
+        "note":         "Click deep link to verify Telegram registration",
+        "search_link":  f"https://t.me/+{clean}",
+    }
+
+    # Viber deep link
+    result["platforms"]["viber"] = {
+        "deep_link": f"viber://chat?number=%2B{clean}",
+        "status":    "manual_check",
+        "note":      "Requires Viber installed",
+    }
+
+    # Signal
+    result["platforms"]["signal"] = {
+        "status": "no_public_api",
+        "note":   "Signal has no public lookup API by design",
+    }
+
+    # Truecaller web search
+    try:
+        tc_url = f"https://www.truecaller.com/search/us/{clean}"
+        result["platforms"]["truecaller"] = {
+            "search_url": tc_url,
+            "status":     "manual_check",
+        }
+    except Exception:
+        pass
+
+    return jsonify(result)
+
+
+# ─────────────────────────────────────────────
+# STATUS — check which tools are installed
+# ─────────────────────────────────────────────
+@app.route("/api/status")
+def tool_status():
+    tools = {}
+
+    def _check_cmd(cmd):
+        try:
+            r = subprocess.run(cmd, capture_output=True, timeout=5)
+            return r.returncode == 0
+        except Exception:
+            return False
+
+    def _check_import(mod):
+        try:
+            __import__(mod)
+            return True
+        except ImportError:
+            return False
+
+    tools["maigret"]      = _check_cmd([MAIGRET_EXE, "--version"])
+    tools["holehe"]       = _check_import("holehe")
+    tools["instaloader"]  = _check_import("instaloader")
+    tools["toutatis"]     = _check_import("toutatis")
+    tools["phonenumbers"] = _check_import("phonenumbers")
+    tools["whois"]        = _check_import("whois")
+    tools["requests"]     = _check_import("requests")
+    tools["hibp_key"]     = bool(HIBP_API_KEY)
+    tools["ipinfo_token"] = bool(IPINFO_TOKEN)
+    tools["ig_session"]   = bool(INSTAGRAM_SESSIONID)
+
+    return jsonify({"tools": tools})
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=7171, debug=True)

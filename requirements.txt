@@ -1,0 +1,11 @@
+flask
+python-dotenv
+requests
+httpx
+phonenumbers
+python-whois
+instaloader
+maigret
+holehe
+toutatis
+beautifulsoup4
