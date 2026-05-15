@@ -23,9 +23,39 @@ load_dotenv(_env_path, override=True)
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
-IPINFO_TOKEN       = os.getenv("IPINFO_TOKEN", "")
-HIBP_API_KEY       = os.getenv("HIBP_API_KEY", "")
+IPINFO_TOKEN        = os.getenv("IPINFO_TOKEN", "")
+HIBP_API_KEY        = os.getenv("HIBP_API_KEY", "")
 INSTAGRAM_SESSIONID = os.getenv("INSTAGRAM_SESSIONID", "")
+
+# ── In-memory cache for Instagram lookups ──────────────────────────────────
+_ig_cache: dict = {}          # { "ig:<username>": (timestamp, data) }
+_IG_CACHE_TTL = 300           # 5 minutes
+
+def _ig_cache_get(key: str):
+    entry = _ig_cache.get(key)
+    if entry and (time.time() - entry[0]) < _IG_CACHE_TTL:
+        return entry[1]
+    return None
+
+def _ig_cache_set(key: str, data: dict):
+    _ig_cache[key] = (time.time(), data)
+
+# ── Retry helper for Instagram rate-limited endpoints ──────────────────────
+def _post_with_retry(url: str, headers: dict, data: str, timeout: int = 10,
+                     max_retries: int = 3, base_delay: float = 4.0,
+                     cookies: dict | None = None):
+    """POST with exponential backoff on 429. Returns (status_code, json_or_None)."""
+    for attempt in range(max_retries):
+        try:
+            resp = requests.post(url, headers=headers, data=data,
+                                 cookies=cookies or {}, timeout=timeout)
+            if resp.status_code != 429:
+                return resp.status_code, resp.json() if resp.content else None
+            if attempt < max_retries - 1:
+                time.sleep(base_delay * (2 ** attempt))   # 4s → 8s → 16s
+        except Exception:
+            break
+    return 429, None
 
 BROWSER_HEADERS = {
     "User-Agent": (
@@ -461,7 +491,7 @@ def instagram_toutatis():
     import instaloader
 
     data = request.json or {}
-    username  = data.get("username", "").strip().lstrip("@")
+    username  = data.get("username", "").strip().lstrip("@").lower()
     _raw_sid  = data.get("sessionid") or INSTAGRAM_SESSIONID or ""
     sessionid = unquote(_raw_sid.strip())
 
@@ -469,6 +499,12 @@ def instagram_toutatis():
         return jsonify({"error": "Username required"}), 400
     if not sessionid:
         return jsonify({"error": "Instagram sessionid required (set in .env atau kirim di request)"}), 400
+
+    # ── Cache check ────────────────────────────────────────────────────────
+    cache_key = f"toutatis:{username}"
+    cached = _ig_cache_get(cache_key)
+    if cached:
+        return jsonify({**cached, "_cached": True})
 
     try:
         # Step 1: resolve user_id via instaloader (bypasses blocked web_profile_info)
@@ -501,44 +537,50 @@ def instagram_toutatis():
 
         u = mobile_resp.json().get("user", {})
 
-        # Step 3: advanced_lookup for obfuscated email/phone (best-effort, may be rate-limited)
+        # Step 3: advanced_lookup — retry with exponential backoff on 429
         lookup_result = {}
         try:
             lookup_body = "signed_body=SIGNATURE." + quote_plus(
                 jdumps({"q": username, "skip_recovery": "1"}, separators=(",", ":"))
             )
-            lookup_resp = requests.post(
+            lookup_headers = {
+                "Accept-Language": "en-US",
+                "User-Agent": "Instagram 314.0.0.35.109 Android (30/11; 420dpi; 1080x2148; samsung; SM-G975U; beyond2q; qcom; en_US; 548756459)",
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                "X-IG-App-ID": "124024574287414",
+                "Accept-Encoding": "gzip, deflate",
+                "Host": "i.instagram.com",
+                "Connection": "keep-alive",
+            }
+            status, ld = _post_with_retry(
                 "https://i.instagram.com/api/v1/users/lookup/",
-                headers={
-                    "Accept-Language": "en-US",
-                    "User-Agent": "Instagram 101.0.0.15.120",
-                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-                    "X-IG-App-ID": "124024574287414",
-                    "Accept-Encoding": "gzip, deflate",
-                    "Host": "i.instagram.com",
-                    "Connection": "keep-alive",
-                    "Content-Length": str(len(lookup_body)),
-                },
+                headers=lookup_headers,
                 data=lookup_body,
                 timeout=10,
+                max_retries=3,
+                base_delay=4.0,
+                cookies={"sessionid": sessionid},
             )
-            if lookup_resp.status_code == 200:
-                ld = lookup_resp.json()
+            if status == 200 and ld:
                 lookup_result = {
                     "obfuscated_email": ld.get("obfuscated_email"),
                     "obfuscated_phone": ld.get("obfuscated_phone"),
                 }
+            elif status == 429:
+                lookup_result = {"lookup_status": "rate limited — IP terlalu banyak request, coba beberapa menit lagi"}
+            elif status == 400:
+                lookup_result = {"lookup_status": "bad request — endpoint Instagram berubah"}
             else:
-                lookup_result = {"lookup_status": f"rate limited (HTTP {lookup_resp.status_code})"}
-        except Exception:
-            lookup_result = {"lookup_status": "unavailable"}
+                lookup_result = {"lookup_status": f"gagal (HTTP {status})"}
+        except Exception as e:
+            lookup_result = {"lookup_status": f"error: {e}"}
 
         # Build phone string if available
         phone_str = None
         if u.get("public_phone_number"):
             phone_str = f"+{u.get('public_phone_country_code', '')} {u.get('public_phone_number', '')}".strip()
 
-        return jsonify({
+        result = {
             "username":             u.get("username"),
             "user_id":              user_id,
             "full_name":            u.get("full_name"),
@@ -560,7 +602,13 @@ def instagram_toutatis():
             "profile_pic_url":      (u.get("hd_profile_pic_url_info") or {}).get("url") or u.get("profile_pic_url"),
             "instagram_url":        f"https://www.instagram.com/{username}/",
             "lookup":               lookup_result,
-        })
+        }
+
+        # Simpan ke cache hanya jika lookup berhasil mendapat data
+        if not lookup_result.get("lookup_status"):
+            _ig_cache_set(cache_key, result)
+
+        return jsonify(result)
 
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500

@@ -778,9 +778,6 @@ async function runMaigret() {
       </div>`).join('') + `</div>`;
   }
 
-  if (data.raw) {
-    html += `<details style="margin-top:12px;"><summary style="font-size:10px;color:var(--text-dim);cursor:pointer;">RAW OUTPUT</summary><div class="raw-output">${data.raw}</div></details>`;
-  }
   setResult(html);
 }
 
@@ -1192,6 +1189,7 @@ async function runToutatis() {
           ${data.is_verified ? '<i class="fas fa-check-circle ig-verified" title="Verified"></i>' : ''}
           ${data.is_private ? '<span class="ig-private-tag">PRIVATE</span>' : '<span class="ig-public-tag">PUBLIC</span>'}
           <span class="ig-deep-tag"><i class="fas fa-spider" style="font-size:8px;"></i> DEEP SCAN</span>
+          ${data._cached ? '<span class="ig-deep-tag" style="background:rgba(31,201,160,.1);color:var(--teal);border-color:rgba(31,201,160,.3);" title="Hasil dari cache — tidak hit API Instagram"><i class="fas fa-bolt" style="font-size:8px;"></i> CACHED</span>' : ''}
         </div>
         ${data.full_name ? `<div class="ig-fullname">${data.full_name}</div>` : ''}
         <div style="margin-top:6px;font-size:10px;color:var(--text-dim);">
