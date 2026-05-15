@@ -28,6 +28,7 @@ HIBP_API_KEY        = os.getenv("HIBP_API_KEY", "")
 INSTAGRAM_SESSIONID = os.getenv("INSTAGRAM_SESSIONID", "")
 GITHUB_TOKEN        = os.getenv("GITHUB_TOKEN", "")
 INTELX_KEY          = os.getenv("INTELX_KEY", "")
+RAPIDAPI_KEY        = os.getenv("RAPIDAPI_KEY", "")
 
 # ── In-memory cache for Instagram lookups ──────────────────────────────────
 _ig_cache: dict = {}          # { "ig:<username>": (timestamp, data) }
@@ -1296,7 +1297,41 @@ def leak_search():
         except Exception:
             pass
 
-    # Source 4: GitHub code search (requires GITHUB_TOKEN)
+    # Source 4: BreachDirectory via RapidAPI (requires RAPIDAPI_KEY)
+    if RAPIDAPI_KEY:
+        try:
+            bd = requests.get(
+                "https://breachdirectory.p.rapidapi.com/",
+                params={"func": "auto", "term": query},
+                headers={
+                    "x-rapidapi-host": "breachdirectory.p.rapidapi.com",
+                    "x-rapidapi-key":  RAPIDAPI_KEY,
+                },
+                timeout=12,
+            )
+            if bd.status_code == 200:
+                bd_data = bd.json()
+                if bd_data.get("success") and bd_data.get("result"):
+                    for entry in bd_data["result"][:15]:
+                        src = entry.get("sources", "BreachDirectory")
+                        src_str = src if isinstance(src, str) else ", ".join(src)
+                        result["results"].append({
+                            "source":       "breachdirectory",
+                            "url":          f"https://breachdirectory.org/?search={query}",
+                            "raw_url":      None,
+                            "title":        src_str,
+                            "date":         None,
+                            "repo":         entry.get("email"),
+                            "sha1":         entry.get("sha1"),
+                            "hash_password":entry.get("hash_password", False),
+                            "has_password": bool(entry.get("password") or entry.get("sha1")),
+                        })
+                    result["sources"].append("breachdirectory")
+                    result["breach_count"] = bd_data.get("found", 0)
+        except Exception:
+            pass
+
+    # Source 5: GitHub code search (requires GITHUB_TOKEN)
     if GITHUB_TOKEN:
         try:
             gh_r = requests.get(
@@ -1340,6 +1375,8 @@ def leak_search():
         missing.append("HIBP_API_KEY (email paste check — free at haveibeenpwned.com/API/Key)")
     if not INTELX_KEY:
         missing.append("INTELX_KEY (leak database — free at intelx.io)")
+    if not RAPIDAPI_KEY:
+        missing.append("RAPIDAPI_KEY (BreachDirectory — free at rapidapi.com/rohan-kumar1/api/breachdirectory)")
     if not GITHUB_TOKEN:
         missing.append("GITHUB_TOKEN (code search — free at github.com/settings/tokens)")
     result["missing_keys"] = missing

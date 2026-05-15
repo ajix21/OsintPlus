@@ -1941,18 +1941,27 @@ async function runLeakSearch() {
     pastesHtml = `<div style="font-size:11px;color:var(--text-dim);padding:12px 0;">No public pastes found for this query.</div>`;
   } else {
     results.forEach(p => {
-      const srcColor = p.source === 'github' ? 'blue' : 'err';
-      const srcLabel = p.source === 'github' ? 'GITHUB' : p.source === 'psbdmp' ? 'PASTEBIN' : 'PASTE';
+      const srcMap = {
+        github: ['blue','GITHUB'],
+        psbdmp: ['err','PASTEBIN'],
+        'hibp-paste': ['pink','HIBP'],
+        intelx: ['purple','INTELX'],
+        breachdirectory: ['red','BREACH'],
+      };
+      const [srcColor, srcLabel] = srcMap[p.source] || ['info','PASTE'];
       const displayTitle = p.title || p.url || '—';
       pastesHtml += `<div style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,.04);">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap;">
           <span class="card-badge badge-${srcColor}">${srcLabel}</span>
+          ${p.has_password ? `<span class="card-badge badge-err">⚠ HAS PASSWORD</span>` : ''}
           ${p.date ? `<span style="font-size:9px;color:var(--text-dim);">${p.date}</span>` : ''}
           ${p.repo ? `<span style="font-size:9px;color:var(--text-dim);">${p.repo}</span>` : ''}
         </div>
         <div style="font-size:10px;word-break:break-all;">
           ${p.url ? `<a href="${p.url}" target="_blank" rel="noopener" class="link" style="margin-right:8px;">${displayTitle}</a>` : displayTitle}
           ${p.raw_url ? `<a href="${p.raw_url}" target="_blank" rel="noopener" class="link" style="font-size:9px;color:var(--text-dim);">raw</a>` : ''}
+          ${p.repo && p.source==='breachdirectory' ? `<span style="color:var(--text-dim);margin-left:6px;font-size:9px;">email: ${p.repo}</span>` : (p.repo ? `<span style="color:var(--text-dim);margin-left:6px;font-size:9px;">${p.repo}</span>` : '')}
+          ${p.sha1 ? `<span style="color:var(--text-dim);font-size:9px;display:block;margin-top:2px;">SHA1: ${p.sha1}</span>` : ''}
         </div>
       </div>`;
     });
