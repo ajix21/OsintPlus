@@ -2,6 +2,8 @@
 
 Aplikasi web OSINT (Open Source Intelligence) berbasis Flask yang menggabungkan berbagai tools intelijen sumber terbuka dalam satu antarmuka.
 
+![Demo OsintPlus](demo.png)
+
 ---
 
 ## Fitur
