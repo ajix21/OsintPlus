@@ -3,7 +3,7 @@ OSINT Plus — Multi-Tool Open Source Intelligence Platform
 Tools: maigret · holehe · ghunt · ipinfo · whois · iginfo · toutatis · hibp · telcek
 """
 from flask import Flask, render_template, jsonify, request
-import subprocess, json, os, re, hashlib, socket, time, sys
+import subprocess, json, os, re, hashlib, socket, time, sys, ipaddress, email.parser
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -27,6 +27,7 @@ IPINFO_TOKEN        = os.getenv("IPINFO_TOKEN", "")
 HIBP_API_KEY        = os.getenv("HIBP_API_KEY", "")
 INSTAGRAM_SESSIONID = os.getenv("INSTAGRAM_SESSIONID", "")
 GITHUB_TOKEN        = os.getenv("GITHUB_TOKEN", "")
+INTELX_KEY          = os.getenv("INTELX_KEY", "")
 
 # ── In-memory cache for Instagram lookups ──────────────────────────────────
 _ig_cache: dict = {}          # { "ig:<username>": (timestamp, data) }
@@ -1010,6 +1011,338 @@ def messenger_check():
         }
     except Exception:
         pass
+
+    return jsonify(result)
+
+
+# ─────────────────────────────────────────────
+# EMAIL — Header Analyzer
+# ─────────────────────────────────────────────
+def _is_private_ip(ip: str) -> bool:
+    try:
+        addr = ipaddress.ip_address(ip)
+        return addr.is_private or addr.is_loopback or addr.is_link_local
+    except Exception:
+        return False
+
+def _extract_auth_status(auth_str: str, proto: str) -> str:
+    m = re.search(rf'{proto}=(\w+)', auth_str, re.IGNORECASE)
+    return m.group(1) if m else "none"
+
+@app.route("/api/email/header", methods=["POST"])
+def email_header_analyzer():
+    data = request.json or {}
+    raw = data.get("headers", "").strip()
+    if not raw:
+        return jsonify({"error": "Email headers required"}), 400
+
+    parser = email.parser.HeaderParser()
+    msg = parser.parsestr(raw)
+
+    result = {
+        "from":              msg.get("From"),
+        "to":                msg.get("To"),
+        "subject":           msg.get("Subject"),
+        "date":              msg.get("Date"),
+        "message_id":        msg.get("Message-ID"),
+        "reply_to":          msg.get("Reply-To"),
+        "return_path":       msg.get("Return-Path"),
+        "x_mailer":          msg.get("X-Mailer"),
+        "user_agent":        msg.get("User-Agent"),
+        "x_originating_ip":  msg.get("X-Originating-IP"),
+        "content_type":      msg.get("Content-Type"),
+    }
+
+    # Hop chain from Received headers
+    received_list = msg.get_all("Received") or []
+    hop_chain = []
+    for r in reversed(received_list):   # oldest hop first
+        ips = re.findall(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', r)
+        public_ips = list(set(ip for ip in ips if not _is_private_ip(ip)))
+        by_m = re.search(r'\bby\s+([\w.\-]+)', r, re.IGNORECASE)
+        from_m = re.search(r'\bfrom\s+([\w.\-]+)', r, re.IGNORECASE)
+        delay_m = re.search(r';\s*(.+)$', r.strip())
+        hop_chain.append({
+            "from_host": from_m.group(1) if from_m else None,
+            "by_host":   by_m.group(1)   if by_m   else None,
+            "public_ips": public_ips,
+            "timestamp": delay_m.group(1).strip() if delay_m else None,
+        })
+    result["hop_chain"] = hop_chain
+    result["hop_count"] = len(hop_chain)
+
+    # Authentication
+    auth_results = msg.get("Authentication-Results", "") or ""
+    arc_auth     = msg.get("ARC-Authentication-Results", "") or ""
+    dkim_sig     = msg.get("DKIM-Signature", "") or ""
+    combined_auth = auth_results + " " + arc_auth
+
+    result["authentication"] = {
+        "dkim": {
+            "present": bool(dkim_sig),
+            "pass":    "dkim=pass" in combined_auth.lower(),
+            "fail":    "dkim=fail" in combined_auth.lower(),
+            "status":  _extract_auth_status(combined_auth, "dkim"),
+        },
+        "spf": {
+            "pass":   "spf=pass" in combined_auth.lower(),
+            "fail":   any(x in combined_auth.lower() for x in ("spf=fail", "spf=softfail")),
+            "status": _extract_auth_status(combined_auth, "spf"),
+        },
+        "dmarc": {
+            "pass":   "dmarc=pass" in combined_auth.lower(),
+            "fail":   "dmarc=fail" in combined_auth.lower(),
+            "status": _extract_auth_status(combined_auth, "dmarc"),
+        },
+        "raw": auth_results,
+    }
+
+    # Spoofing indicators
+    from_addr   = result.get("from") or ""
+    return_path = result.get("return_path") or ""
+    reply_to    = result.get("reply_to") or ""
+
+    from_domain = re.search(r'@([\w.\-]+)', from_addr)
+    rp_domain   = re.search(r'@([\w.\-]+)', return_path)
+    indicators  = []
+
+    if from_domain and rp_domain and from_domain.group(1).lower() != rp_domain.group(1).lower():
+        indicators.append(f"From domain differs from Return-Path ({from_domain.group(1)} vs {rp_domain.group(1)})")
+    if reply_to and from_addr and reply_to.strip().lower() != from_addr.strip().lower():
+        indicators.append(f"Reply-To differs from From address")
+    if result["authentication"]["dkim"]["fail"]:
+        indicators.append("DKIM signature failed verification")
+    if result["authentication"]["spf"]["fail"]:
+        indicators.append("SPF check failed or softfail")
+    if result["authentication"]["dmarc"]["fail"]:
+        indicators.append("DMARC policy failed")
+
+    result["spoofing_risk"]       = "high" if len(indicators) >= 2 else "medium" if indicators else "low"
+    result["spoofing_indicators"] = indicators
+
+    # Spam headers
+    spam_status = msg.get("X-Spam-Status", "") or ""
+    spam_score  = msg.get("X-Spam-Score", "")  or msg.get("X-Spam-Level", "")
+    result["spam"] = {
+        "status":  spam_status,
+        "score":   spam_score,
+        "flagged": "yes" in spam_status.lower() if spam_status else None,
+    }
+
+    return jsonify(result)
+
+
+# ─────────────────────────────────────────────
+# DNS — Deep record lookup
+# ─────────────────────────────────────────────
+@app.route("/api/dns", methods=["POST"])
+def dns_lookup():
+    try:
+        import dns.resolver, dns.exception
+    except ImportError:
+        return jsonify({"error": "dnspython not installed — run: pip install dnspython"}), 500
+
+    data = request.json or {}
+    domain = data.get("domain", "").strip().lower()
+    domain = re.sub(r"^https?://", "", domain).split("/")[0].split("?")[0]
+    if not domain or "." not in domain:
+        return jsonify({"error": "Invalid domain"}), 400
+
+    resolver = dns.resolver.Resolver()
+    resolver.timeout = 5
+    resolver.lifetime = 10
+
+    result = {"domain": domain, "records": {}}
+
+    def _query(dom, rtype):
+        try:
+            answers = resolver.resolve(dom, rtype)
+            if rtype == "MX":
+                return sorted([{"priority": r.preference, "exchange": str(r.exchange).rstrip(".")} for r in answers],
+                               key=lambda x: x["priority"])
+            if rtype == "SOA":
+                r = answers[0]
+                return [{"mname": str(r.mname).rstrip("."), "rname": str(r.rname).rstrip("."),
+                          "serial": r.serial, "refresh": r.refresh, "retry": r.retry,
+                          "expire": r.expire, "minimum": r.minimum}]
+            return [str(r).strip('"').rstrip(".") for r in answers]
+        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.resolver.NoNameservers):
+            return []
+        except Exception as e:
+            return {"error": str(e)}
+
+    for rtype in ["A", "AAAA", "MX", "NS", "TXT", "CNAME", "SOA", "CAA"]:
+        result["records"][rtype] = _query(domain, rtype)
+
+    # SPF (from TXT)
+    txt = result["records"].get("TXT", [])
+    result["spf"] = [r for r in txt if isinstance(r, str) and "v=spf1" in r.lower()]
+
+    # DMARC
+    result["dmarc"] = _query(f"_dmarc.{domain}", "TXT")
+
+    # DKIM common selectors
+    dkim_found = []
+    for sel in ["default", "google", "mail", "dkim", "k1", "s1", "s2", "selector1", "selector2"]:
+        records = _query(f"{sel}._domainkey.{domain}", "TXT")
+        if records and not isinstance(records, dict):
+            dkim_found.append({"selector": sel, "record": records[0] if records else ""})
+    result["dkim_selectors"] = dkim_found
+
+    # Basic geo of first A record
+    a_records = result["records"].get("A", [])
+    if a_records and isinstance(a_records, list):
+        try:
+            geo = requests.get(f"http://ip-api.com/json/{a_records[0]}?fields=country,regionName,city,isp,org,as",
+                               timeout=6)
+            if geo.status_code == 200:
+                result["ip_geo"] = geo.json()
+        except Exception:
+            pass
+
+    return jsonify(result)
+
+
+# ─────────────────────────────────────────────
+# LEAK — Paste / breach search (multi-source)
+# ─────────────────────────────────────────────
+@app.route("/api/leaksearch", methods=["POST"])
+def leak_search():
+    data = request.json or {}
+    query = data.get("query", "").strip()
+    if not query or len(query) < 3:
+        return jsonify({"error": "Query must be at least 3 characters"}), 400
+
+    is_email = "@" in query
+    result   = {"query": query, "results": [], "sources": [], "total": 0, "is_email": is_email}
+
+    # Source 1: psbdmp.ws (free Pastebin dump index — works if network allows)
+    try:
+        r = requests.get(
+            f"https://psbdmp.ws/api/v3/search/{query}",
+            headers=BROWSER_HEADERS, timeout=8
+        )
+        if r.status_code == 200:
+            payload = r.json()
+            pastes = payload if isinstance(payload, list) else payload.get("data", [])
+            for p in pastes[:15]:
+                result["results"].append({
+                    "source":  "psbdmp",
+                    "url":     f"https://pastebin.com/{p.get('id')}",
+                    "raw_url": f"https://psbdmp.ws/{p.get('id')}",
+                    "title":   p.get("id"),
+                    "date":    p.get("date") or p.get("time"),
+                    "repo":    None,
+                })
+            result["sources"].append("psbdmp.ws")
+    except Exception:
+        pass
+
+    # Source 2: HIBP Paste API (email only, requires HIBP_API_KEY)
+    if is_email and HIBP_API_KEY:
+        try:
+            r = requests.get(
+                f"https://haveibeenpwned.com/api/v3/pasteaccount/{query}",
+                headers={"hibp-api-key": HIBP_API_KEY, "User-Agent": "OsintPlus-Security-Tool"},
+                timeout=12
+            )
+            if r.status_code == 200:
+                for p in r.json():
+                    result["results"].append({
+                        "source":  "hibp-paste",
+                        "url":     p.get("Source", ""),
+                        "raw_url": None,
+                        "title":   f"{p.get('Source','')} · {p.get('Id','')}",
+                        "date":    p.get("Date"),
+                        "repo":    None,
+                    })
+                result["sources"].append("HIBP")
+        except Exception:
+            pass
+
+    # Source 3: IntelX API (optional — set INTELX_KEY in .env, free at intelx.io)
+    if INTELX_KEY:
+        try:
+            ix_start = requests.post(
+                "https://2.intelx.io/intelligent/search",
+                json={
+                    "term": query, "buckets": [], "lookuplevel": 0,
+                    "maxresults": 10, "timeout": 0, "datefrom": "", "dateto": "",
+                    "sort": 4, "media": 0, "terminate": [],
+                },
+                headers={"x-key": INTELX_KEY, "Content-Type": "application/json"},
+                timeout=10,
+            )
+            if ix_start.status_code == 200:
+                ix_id = ix_start.json().get("id")
+                time.sleep(1)
+                ix_res = requests.get(
+                    f"https://2.intelx.io/intelligent/search/result?id={ix_id}&limit=10&offset=0",
+                    headers={"x-key": INTELX_KEY},
+                    timeout=10,
+                )
+                if ix_res.status_code == 200:
+                    for item in ix_res.json().get("records", [])[:10]:
+                        result["results"].append({
+                            "source":  "intelx",
+                            "url":     f"https://intelx.io/?did={item.get('systemid','')}",
+                            "raw_url": None,
+                            "title":   item.get("name") or item.get("bucket", ""),
+                            "date":    item.get("date"),
+                            "repo":    item.get("bucket"),
+                        })
+                    if ix_res.json().get("records"):
+                        result["sources"].append("intelx.io")
+        except Exception:
+            pass
+
+    # Source 4: GitHub code search (requires GITHUB_TOKEN)
+    if GITHUB_TOKEN:
+        try:
+            gh_r = requests.get(
+                f"https://api.github.com/search/code?q={query}&per_page=5",
+                headers={
+                    "Authorization": f"Bearer {GITHUB_TOKEN}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                    "User-Agent": "OsintPlus",
+                },
+                timeout=10,
+            )
+            if gh_r.status_code == 200:
+                items = gh_r.json().get("items", [])
+                for item in items[:5]:
+                    result["results"].append({
+                        "source":  "github",
+                        "url":     item.get("html_url"),
+                        "raw_url": None,
+                        "title":   item.get("name"),
+                        "date":    None,
+                        "repo":    item.get("repository", {}).get("full_name"),
+                    })
+                if items:
+                    result["sources"].append("github.com")
+        except Exception:
+            pass
+
+    result["total"] = len(result["results"])
+    result["links"] = {
+        "dehashed":        f"https://www.dehashed.com/search?query={query}",
+        "intelx":          f"https://intelx.io/?s={query}",
+        "breachdirectory": f"https://breachdirectory.org/?search={query}",
+        "leakcheck":       f"https://leakcheck.io/search?query={query}",
+        "snusbase":        f"https://snusbase.com/",
+    }
+
+    # Hint about which keys are missing
+    missing = []
+    if is_email and not HIBP_API_KEY:
+        missing.append("HIBP_API_KEY (email paste check — free at haveibeenpwned.com/API/Key)")
+    if not INTELX_KEY:
+        missing.append("INTELX_KEY (leak database — free at intelx.io)")
+    if not GITHUB_TOKEN:
+        missing.append("GITHUB_TOKEN (code search — free at github.com/settings/tokens)")
+    result["missing_keys"] = missing
 
     return jsonify(result)
 
