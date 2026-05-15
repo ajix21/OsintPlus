@@ -3,9 +3,11 @@ OSINT Plus — Multi-Tool Open Source Intelligence Platform
 Tools: maigret · holehe · ghunt · ipinfo · whois · iginfo · toutatis · hibp · telcek
 """
 from flask import Flask, render_template, jsonify, request
-import subprocess, json, os, re, hashlib, socket, time, sys, ipaddress, email.parser
+import subprocess, json, os, re, hashlib, socket, time, sys, ipaddress, email.parser, logging
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import quote, quote_plus
+from collections import OrderedDict
 
 # Resolve venv-local executables (maigret, etc.)
 _SCRIPTS_DIR = os.path.join(os.path.dirname(sys.executable))
@@ -20,8 +22,30 @@ from dotenv import load_dotenv
 _env_path = os.path.join(os.path.dirname(__file__), ".env")
 load_dotenv(_env_path, override=True)
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+)
+logger = logging.getLogger(__name__)
+
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
+app.secret_key = os.getenv("SECRET_KEY") or os.urandom(24)
+
+
+@app.after_request
+def add_security_headers(response):
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' fonts.googleapis.com cdnjs.cloudflare.com; "
+        "font-src fonts.gstatic.com cdnjs.cloudflare.com; "
+        "img-src * data:; "
+        "connect-src 'self'"
+    )
+    return response
 
 IPINFO_TOKEN        = os.getenv("IPINFO_TOKEN", "")
 HIBP_API_KEY        = os.getenv("HIBP_API_KEY", "")
@@ -30,18 +54,35 @@ GITHUB_TOKEN        = os.getenv("GITHUB_TOKEN", "")
 INTELX_KEY          = os.getenv("INTELX_KEY", "")
 RAPIDAPI_KEY        = os.getenv("RAPIDAPI_KEY", "")
 
-# ── In-memory cache for Instagram lookups ──────────────────────────────────
-_ig_cache: dict = {}          # { "ig:<username>": (timestamp, data) }
-_IG_CACHE_TTL = 300           # 5 minutes
+# ── LRU in-memory cache for Instagram lookups (bounded to 500 entries) ───────
+class _LRUCache:
+    def __init__(self, maxsize: int = 500, ttl: int = 300):
+        self._store: OrderedDict = OrderedDict()
+        self.maxsize = maxsize
+        self.ttl = ttl
+
+    def get(self, key: str):
+        entry = self._store.get(key)
+        if entry and (time.time() - entry[0]) < self.ttl:
+            self._store.move_to_end(key)
+            return entry[1]
+        return None
+
+    def set(self, key: str, val: dict):
+        if key in self._store:
+            self._store.move_to_end(key)
+        self._store[key] = (time.time(), val)
+        if len(self._store) > self.maxsize:
+            self._store.popitem(last=False)
+
+
+_ig_cache = _LRUCache(maxsize=500, ttl=300)
 
 def _ig_cache_get(key: str):
-    entry = _ig_cache.get(key)
-    if entry and (time.time() - entry[0]) < _IG_CACHE_TTL:
-        return entry[1]
-    return None
+    return _ig_cache.get(key)
 
 def _ig_cache_set(key: str, data: dict):
-    _ig_cache[key] = (time.time(), data)
+    _ig_cache.set(key, data)
 
 # ── Retry helper for Instagram rate-limited endpoints ──────────────────────
 def _post_with_retry(url: str, headers: dict, data: str, timeout: int = 10,
@@ -312,13 +353,11 @@ def phone_lookup():
     except Exception as exc:
         result["parse_error"] = str(exc)
 
-    # ipinfo.io
+    # ipinfo.io (token via Authorization header, not URL param)
     e164 = result.get("e164", re.sub(r"[^\d+]", "", number))
     try:
-        ip_url = f"https://ipinfo.io/{e164}/json"
-        if IPINFO_TOKEN:
-            ip_url += f"?token={IPINFO_TOKEN}"
-        r = requests.get(ip_url, timeout=10)
+        _ipinfo_hdrs = {"Authorization": f"Bearer {IPINFO_TOKEN}"} if IPINFO_TOKEN else {}
+        r = requests.get(f"https://ipinfo.io/{e164}/json", headers=_ipinfo_hdrs, timeout=10)
         if r.status_code == 200:
             result["ipinfo"] = r.json()
             result["sources"].append("ipinfo.io")
@@ -372,12 +411,25 @@ def domain_lookup():
     # DNS + IP
     try:
         ip = socket.gethostbyname(domain)
-        result["ip_address"] = ip
-        result["resolves"]   = True
-        result["sources"].append("dns")
+        # Block SSRF: refuse to follow domains that resolve to private ranges
+        try:
+            _resolved = ipaddress.ip_address(ip)
+            if _resolved.is_private or _resolved.is_loopback or _resolved.is_link_local:
+                result["resolves"] = True
+                result["ip_address"] = ip
+                result["ssrf_blocked"] = True
+                ip = None  # skip ipinfo call
+        except ValueError:
+            pass
 
-        r = requests.get(f"https://ipinfo.io/{ip}/json", timeout=8)
-        if r.status_code == 200:
+        if ip:
+            result["ip_address"] = ip
+            result["resolves"]   = True
+            result["sources"].append("dns")
+
+        _ipinfo_headers = {"Authorization": f"Bearer {IPINFO_TOKEN}"} if IPINFO_TOKEN else {}
+        r = requests.get(f"https://ipinfo.io/{ip}/json", headers=_ipinfo_headers, timeout=8) if ip else None
+        if r and r.status_code == 200:
             ipd = r.json()
             result["ip_info"] = {
                 "ip":       ipd.get("ip"),
@@ -427,6 +479,14 @@ def ip_lookup():
     ip_clean = re.sub(r"[^0-9a-fA-F:.]", "", ip)
     if not ip_clean:
         return jsonify({"error": "Invalid IP address"}), 400
+
+    # Block private / loopback / link-local addresses (SSRF prevention)
+    try:
+        _addr = ipaddress.ip_address(ip_clean)
+        if _addr.is_private or _addr.is_loopback or _addr.is_link_local or _addr.is_reserved:
+            return jsonify({"error": "Private or reserved IP addresses are not allowed"}), 400
+    except ValueError:
+        return jsonify({"error": "Invalid IP address format"}), 400
 
     try:
         fields = "status,message,continent,continentCode,country,countryCode,region,regionName,city,district,zip,lat,lon,timezone,offset,currency,isp,org,as,asname,reverse,mobile,proxy,hosting,query"
@@ -716,13 +776,12 @@ def instagram_toutatis():
 
     data = request.json or {}
     username  = data.get("username", "").strip().lstrip("@").lower()
-    _raw_sid  = data.get("sessionid") or INSTAGRAM_SESSIONID or ""
-    sessionid = unquote(_raw_sid.strip())
+    sessionid = unquote(INSTAGRAM_SESSIONID.strip()) if INSTAGRAM_SESSIONID else ""
 
     if not username:
         return jsonify({"error": "Username required"}), 400
     if not sessionid:
-        return jsonify({"error": "Instagram sessionid required (set in .env atau kirim di request)"}), 400
+        return jsonify({"error": "Instagram sessionid required (set INSTAGRAM_SESSIONID di .env)"}), 400
 
     # ── Cache check ────────────────────────────────────────────────────────
     cache_key = f"toutatis:{username}"
@@ -1036,6 +1095,8 @@ def email_header_analyzer():
     raw = data.get("headers", "").strip()
     if not raw:
         return jsonify({"error": "Email headers required"}), 400
+    if len(raw) > 65_536:
+        return jsonify({"error": "Headers too large (max 64 KB)"}), 413
 
     parser = email.parser.HeaderParser()
     msg = parser.parsestr(raw)
@@ -1220,7 +1281,7 @@ def leak_search():
     # Source 1: psbdmp.ws (free Pastebin dump index — works if network allows)
     try:
         r = requests.get(
-            f"https://psbdmp.ws/api/v3/search/{query}",
+            f"https://psbdmp.ws/api/v3/search/{quote(query, safe='')}",
             headers=BROWSER_HEADERS, timeout=8
         )
         if r.status_code == 200:
@@ -1338,7 +1399,7 @@ def leak_search():
     if GITHUB_TOKEN:
         try:
             gh_r = requests.get(
-                f"https://api.github.com/search/code?q={query}&per_page=5",
+                f"https://api.github.com/search/code?q={quote_plus(query)}&per_page=5",
                 headers={
                     "Authorization": f"Bearer {GITHUB_TOKEN}",
                     "Accept": "application/vnd.github+json",
@@ -1427,4 +1488,8 @@ def tool_status():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=7171, debug=True)
+    _debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
+    _host  = os.getenv("FLASK_HOST", "127.0.0.1")
+    _port  = int(os.getenv("FLASK_PORT", "7171"))
+    logger.info("Starting OsintPlus on %s:%d (debug=%s)", _host, _port, _debug)
+    app.run(host=_host, port=_port, debug=_debug)
