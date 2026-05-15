@@ -1758,16 +1758,20 @@ async function loadStatus() {
   const data = await fetch('/api/status').then(r=>r.json());
   const tools = data.tools || {};
   const labels = {
-    maigret:      'maigret (username)',
-    holehe:       'holehe (email)',
+    maigret:      'maigret (username hunt)',
+    holehe:       'holehe (email check)',
     instaloader:  'instaloader (iginfo)',
-    toutatis:     'toutatis (instagram deep)',
+    toutatis:     'toutatis deep scan',
     phonenumbers: 'phonenumbers (phone)',
     whois:        'python-whois (domain)',
     requests:     'requests (HTTP)',
+    dnspython:    'dnspython (DNS lookup)',
     hibp_key:     'HIBP API Key',
+    intelx_key:   'IntelX API Key',
+    rapidapi_key: 'RapidAPI Key (BreachDir)',
     ipinfo_token: 'IPInfo Token',
     ig_session:   'Instagram SessionID',
+    github_token: 'GitHub Token',
   };
   let html = Object.entries(labels).map(([k,l]) => {
     const ok = tools[k];
@@ -1938,37 +1942,36 @@ async function runLeakSearch() {
 
   let pastesHtml = '';
   if (results.length === 0) {
-    pastesHtml = `<div style="font-size:11px;color:var(--text-dim);padding:12px 0;">No public pastes found for this query.</div>`;
+    pastesHtml = `<div style="font-size:14px;color:var(--text-dim);padding:12px 0;">No public pastes found for this query.</div>`;
   } else {
     results.forEach(p => {
       const srcMap = {
-        github: ['blue','GITHUB'],
-        psbdmp: ['err','PASTEBIN'],
-        'hibp-paste': ['pink','HIBP'],
-        intelx: ['purple','INTELX'],
+        github:          ['blue','GITHUB'],
+        psbdmp:          ['err','PASTEBIN'],
+        'hibp-paste':    ['pink','HIBP'],
+        intelx:          ['purple','INTELX'],
         breachdirectory: ['red','BREACH'],
       };
       const [srcColor, srcLabel] = srcMap[p.source] || ['info','PASTE'];
       const displayTitle = p.title || p.url || '—';
-      pastesHtml += `<div style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,.04);">
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap;">
-          <span class="card-badge badge-${srcColor}">${srcLabel}</span>
-          ${p.has_password ? `<span class="card-badge badge-err">⚠ HAS PASSWORD</span>` : ''}
-          ${p.date ? `<span style="font-size:9px;color:var(--text-dim);">${p.date}</span>` : ''}
-          ${p.repo ? `<span style="font-size:9px;color:var(--text-dim);">${p.repo}</span>` : ''}
+      pastesHtml += `<div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,.04);">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap;">
+          <span class="card-badge badge-${srcColor}" style="font-size:10px;padding:2px 8px;">${srcLabel}</span>
+          ${p.has_password ? `<span class="card-badge badge-err" style="font-size:10px;padding:2px 8px;">⚠ HAS PASSWORD</span>` : ''}
+          ${p.date ? `<span style="font-size:12px;color:var(--text-dim);">${p.date}</span>` : ''}
         </div>
-        <div style="font-size:10px;word-break:break-all;">
+        <div style="font-size:14px;word-break:break-all;line-height:1.6;">
           ${p.url ? `<a href="${p.url}" target="_blank" rel="noopener" class="link" style="margin-right:8px;">${displayTitle}</a>` : displayTitle}
-          ${p.raw_url ? `<a href="${p.raw_url}" target="_blank" rel="noopener" class="link" style="font-size:9px;color:var(--text-dim);">raw</a>` : ''}
-          ${p.repo && p.source==='breachdirectory' ? `<span style="color:var(--text-dim);margin-left:6px;font-size:9px;">email: ${p.repo}</span>` : (p.repo ? `<span style="color:var(--text-dim);margin-left:6px;font-size:9px;">${p.repo}</span>` : '')}
-          ${p.sha1 ? `<span style="color:var(--text-dim);font-size:9px;display:block;margin-top:2px;">SHA1: ${p.sha1}</span>` : ''}
+          ${p.raw_url ? `<a href="${p.raw_url}" target="_blank" rel="noopener" class="link" style="font-size:12px;color:var(--text-dim);">raw</a>` : ''}
         </div>
+        ${p.repo && p.source==='breachdirectory' ? `<div style="color:var(--text-dim);font-size:13px;margin-top:3px;">email: <span style="color:var(--amber);">${p.repo}</span></div>` : (p.repo && p.source!=='breachdirectory' ? `<div style="color:var(--text-dim);font-size:13px;margin-top:3px;">${p.repo}</div>` : '')}
+        ${p.sha1 ? `<div style="color:var(--text-dim);font-size:12px;margin-top:2px;font-family:'Space Mono',monospace;">SHA1: ${p.sha1}</div>` : ''}
       </div>`;
     });
   }
 
   const linkBtns = Object.entries(links).map(([name,url]) =>
-    `<a href="${url}" target="_blank" rel="noopener" class="ig-open-btn" style="margin:4px;font-size:9px;">${name}</a>`
+    `<a href="${url}" target="_blank" rel="noopener" class="ig-open-btn" style="margin:4px;font-size:11px;">${name}</a>`
   ).join('');
 
   const html = `<div style="max-width:760px;">
@@ -1977,20 +1980,26 @@ async function runLeakSearch() {
       <div style="margin-bottom:8px;">
         <span class="card-badge badge-${results.length > 0 ? 'err' : 'info'}">${results.length} results</span>
         ${(data.sources||[]).map(s=>`<span class="card-badge badge-info" style="margin-left:4px;">${s}</span>`).join('')}
+        ${data.breach_count ? `<span style="font-size:13px;color:var(--text-dim);margin-left:8px;">~${data.breach_count.toLocaleString()} total di database</span>` : ''}
       </div>
       ${pastesHtml}
     </div>
 
     <div class="result-section">
       <div class="section-title"><i class="fas fa-external-link-alt"></i> Manual Investigation</div>
-      <div style="font-size:10px;color:var(--text-dim);margin-bottom:10px;">Klik untuk cari di database premium:</div>
+      <div style="font-size:13px;color:var(--text-dim);margin-bottom:10px;">Klik untuk cari di database premium:</div>
       <div style="display:flex;flex-wrap:wrap;">${linkBtns}</div>
     </div>
 
+    ${data.breachdirectory_error ? `<div class="result-section">
+      <div class="section-title"><i class="fas fa-exclamation-triangle"></i> BreachDirectory</div>
+      <div style="font-size:13px;color:var(--red);">${data.breachdirectory_error}</div>
+    </div>` : ''}
+
     ${(data.missing_keys||[]).length ? `<div class="result-section">
       <div class="section-title"><i class="fas fa-key"></i> API Keys Belum Dikonfigurasi</div>
-      <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px;">Tambahkan ke <code style="color:var(--amber);">.env</code> untuk aktifkan sumber tambahan:</div>
-      ${(data.missing_keys||[]).map(k=>`<div style="font-size:10px;color:var(--orange);padding:3px 0;"><i class="fas fa-plus-circle"></i> ${k}</div>`).join('')}
+      <div style="font-size:13px;color:var(--text-dim);margin-bottom:6px;">Tambahkan ke <code style="color:var(--amber);">.env</code> untuk aktifkan sumber tambahan:</div>
+      ${(data.missing_keys||[]).map(k=>`<div style="font-size:13px;color:var(--orange);padding:3px 0;"><i class="fas fa-plus-circle"></i> ${k}</div>`).join('')}
     </div>` : ''}
   </div>`;
   setResult(html);

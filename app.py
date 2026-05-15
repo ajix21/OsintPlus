@@ -1311,7 +1311,10 @@ def leak_search():
             )
             if bd.status_code == 200:
                 bd_data = bd.json()
-                if bd_data.get("success") and bd_data.get("result"):
+                # Quota exceeded or error message
+                if bd_data.get("message"):
+                    result["breachdirectory_error"] = bd_data["message"]
+                elif bd_data.get("success") and bd_data.get("result"):
                     for entry in bd_data["result"][:15]:
                         src = entry.get("sources", "BreachDirectory")
                         src_str = src if isinstance(src, str) else ", ".join(src)
@@ -1408,13 +1411,17 @@ def tool_status():
     tools["maigret"]      = _check_cmd([MAIGRET_EXE, "--version"])
     tools["holehe"]       = _check_import("holehe")
     tools["instaloader"]  = _check_import("instaloader")
-    tools["toutatis"]     = _check_import("toutatis")
+    tools["toutatis"]     = _check_import("instaloader")   # toutatis uses instaloader impl
     tools["phonenumbers"] = _check_import("phonenumbers")
     tools["whois"]        = _check_import("whois")
     tools["requests"]     = _check_import("requests")
+    tools["dnspython"]    = _check_import("dns.resolver")
     tools["hibp_key"]     = bool(HIBP_API_KEY)
+    tools["intelx_key"]   = bool(INTELX_KEY)
+    tools["rapidapi_key"] = bool(RAPIDAPI_KEY)
     tools["ipinfo_token"] = bool(IPINFO_TOKEN)
     tools["ig_session"]   = bool(INSTAGRAM_SESSIONID)
+    tools["github_token"] = bool(GITHUB_TOKEN)
 
     return jsonify({"tools": tools})
 
